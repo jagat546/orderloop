@@ -10,6 +10,8 @@ Each service has its own schema. Money is a `bigint` column in minor units with 
 | `orderloop_app` | Normal service traffic | `NOSUPERUSER NOBYPASSRLS`, not an owner |
 | `orderloop_ops` | Outbox relay, deadline and detector scans | `NOSUPERUSER NOBYPASSRLS`, explicit policies on specific tables only |
 
+In development, `deploy/postgres/init/01-roles-and-schemas.sh` creates these roles and the five service schemas, owned by `orderloop_owner`. `bash scripts/check-infra.sh` checks them.
+
 ## Table template
 
 ```sql

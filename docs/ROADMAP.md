@@ -7,7 +7,7 @@ OrderLoop ships first as an open-source project (ADR 0007). M1 builds the reliab
 ## M1: reliable core and simulator demo
 
 - [ ] M1.1 Create the Maven multi-module skeleton on Java 25 and the newest supported Spring Boot 4.x, with Spotless, ArchUnit and CI running `check-invariants.sh` and `mvn verify`. Done when: `mvn verify` passes in CI.
-- [ ] M1.2 Add `docker-compose.yml` with PostgreSQL, Kafka in KRaft mode and Redis, plus roles and schemas. Done when: services are healthy from a clean start.
+- [x] M1.2 Add `deploy/docker-compose.yml` with PostgreSQL, Kafka in KRaft mode and Redis, plus roles and schemas. Done when: services are healthy from a clean start.
 - [ ] M1.3 Build `common-dto`: `Money` (minor units and ISO 4217 code), sealed commands and events, envelope, JSON round-trip and golden tests. Done when: it has no Spring dependency, enforced by ArchUnit; adding two currencies throws; and JPY, USD and KWD amounts round-trip exactly.
 - [ ] M1.4 Build tenant context: `TenantContext`, `TenantBindingFilter`, API-key auth for development. Done when: a missing credential returns 401, a mismatched header returns 403, and scope tests pass on virtual threads.
 - [ ] M1.5 Build RLS: `TenantAwareDataSource`, Hibernate `@TenantId`, a sample table. Done when: as `orderloop_app`, tenant B cannot read, update or delete tenant A's row through JPA `find` or native SQL, and an unbound scope sees nothing.

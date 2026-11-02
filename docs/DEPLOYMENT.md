@@ -22,6 +22,8 @@ Reprice at deploy time. [Hetzner's prices rose sharply in 2026, and its CX and C
 
 ```text
 deploy/
+  docker-compose.yml        # Development infrastructure only (M1.2)
+  postgres/init/            # Creates roles and schemas on an empty volume
   docker-compose.prod.yml
   Caddyfile
   backup/

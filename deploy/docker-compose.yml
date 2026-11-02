@@ -1,0 +1,82 @@
+# Development infrastructure. Not for production; see docs/DEPLOYMENT.md.
+# Start: docker compose -f deploy/docker-compose.yml up -d --wait
+# Check: bash scripts/check-infra.sh
+# Passwords fall back to development defaults so a clean checkout starts with no setup.
+# Override them in deploy/.env (copy from .env.example). Ports bind to localhost only;
+# set POSTGRES_HOST_PORT, KAFKA_HOST_PORT or REDIS_HOST_PORT if a default port is taken.
+
+name: orderloop
+
+services:
+  postgres:
+    # Current PostgreSQL major on 2026-11-02 (postgresql.org versions.json).
+    image: postgres:18.6
+    environment:
+      POSTGRES_DB: orderloop
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:-postgres_dev}
+      POSTGRES_OWNER_PASSWORD: ${POSTGRES_OWNER_PASSWORD:-orderloop_owner_dev}
+      POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-orderloop_app_dev}
+      POSTGRES_OPS_PASSWORD: ${POSTGRES_OPS_PASSWORD:-orderloop_ops_dev}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18 images keep data under /var/lib/postgresql/18/docker, so mount the parent.
+      - postgres-data:/var/lib/postgresql
+      # Runs only when the data volume is empty: roles and schemas from docs/DATA_MODEL.md.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d orderloop"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  kafka:
+    # Single broker in KRaft mode (no ZooKeeper). Apache Kafka 4.4.0, released 2026-10-22.
+    image: apache/kafka:4.4.0
+    environment:
+      # Must be a base64-encoded UUID; fixed so the volume keeps matching across restarts.
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      KAFKA_NODE_ID: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: INTERNAL://:9092,EXTERNAL://:29092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:9092,EXTERNAL://localhost:${KAFKA_HOST_PORT:-29092}
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Topics are declared explicitly with their dead-letter topics, see .claude/rules/messaging.md.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    ports:
+      - "127.0.0.1:${KAFKA_HOST_PORT:-29092}:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 20s
+
+  redis:
+    # Caching and rate limits only; never correctness (ADR 0003).
+    image: redis:8.10.3
+    ports:
+      - "127.0.0.1:${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  postgres-data:
+  kafka-data:
+  redis-data:
