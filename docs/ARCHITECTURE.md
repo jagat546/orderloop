@@ -61,6 +61,9 @@ public final class TenantContext {
     if (tenantId == null || tenantId.isBlank()) {
       throw new IllegalArgumentException("tenantId is required");
     }
+    if (TENANT.isBound() && !TENANT.get().equals(tenantId)) {
+      throw new IllegalStateException("Cannot switch tenant inside another tenant's scope");
+    }
     return ScopedValue.where(TENANT, tenantId).call(op);
   }
 }

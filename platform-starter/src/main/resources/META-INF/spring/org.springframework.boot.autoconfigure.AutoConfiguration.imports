@@ -1,1 +1,2 @@
 app.orderloop.platform.tenant.TenantWebAutoConfiguration
+app.orderloop.platform.tenant.TenantDataAutoConfiguration

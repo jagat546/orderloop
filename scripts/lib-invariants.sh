@@ -25,6 +25,8 @@ java_violations() {
     echo "@Async is banned; scoped values do not cross into its threads"
   grep -qE 'System\.(out|err)\.print' <<<"$code" &&
     echo "Use SLF4J, not System.out or System.err"
+  grep -qE '\.unwrap\([A-Za-z]*DataSource\.class\)' <<<"$code" &&
+    echo "Do not unwrap the DataSource: raw pool connections still carry the last tenant's setting"
   grep -qE '@(Filter|FilterDef)\b' <<<"$code" &&
     echo "Hibernate @Filter is banned for tenancy; use @TenantId and RLS"
   grep -qiE '\b(double|float|BigDecimal)[[:space:]]+[a-z_]*(amount|price|total|minor|cost|refund|money)[a-z_]*' <<<"$code" &&
@@ -57,6 +59,19 @@ migration_violations() {
     *) echo "Migration name must look like V12__add_refund_intent.sql" ;;
   esac
   sql="$(cat)"
+
+  # Policy checks apply even to tenant-exempt files. Flatten whitespace and the spaces around "("
+  # so formatting cannot hide a pattern.
+  local flat settings guarded
+  flat="$(tr -s '[:space:]' ' ' <<<"$sql" | sed -E 's/ *\( */(/g')"
+  # An unbound scope sets ''. Without NULLIF, a row with tenant_id = '' would match it.
+  settings="$(grep -oiE "current_setting\('app\.tenant_id'" <<<"$flat" | wc -l | tr -d ' ')"
+  guarded="$(grep -oiE "nullif\(current_setting\('app\.tenant_id'" <<<"$flat" | wc -l | tr -d ' ')"
+  [ "$settings" -gt "$guarded" ] &&
+    echo "Compare tenant_id with NULLIF(current_setting('app.tenant_id', true), ''), so an unbound scope matches nothing"
+  grep -qiE "create policy[^;]* to [^;]*orderloop_app[^;]*(using|with check)\(true\)" <<<"$flat" &&
+    echo "A policy for orderloop_app must not be USING (true) or WITH CHECK (true); that reads every tenant"
+
   grep -qiE 'tenant-exempt:' <<<"$sql" && return 0
 
   tables="$(grep -ciE '^[[:space:]]*CREATE[[:space:]]+TABLE' <<<"$sql" || true)"

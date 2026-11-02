@@ -31,16 +31,23 @@ class TenantContextTest {
   }
 
   @Test
-  void aNestedScopeRebindsAndTheOuterTenantComesBack() {
+  void switchingToAnotherTenantInsideAScopeIsRefused() {
+    // A transaction joined inside the nested scope would keep the outer tenant's connection.
+    assertThatThrownBy(
+            () -> TenantContext.callAs("t_a", () -> TenantContext.callAs("t_b", () -> "never")))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void rebindingTheSameTenantIsAllowed() {
     List<String> seen =
         TenantContext.callAs(
             "t_a",
-            () -> {
-              String nested = TenantContext.callAs("t_b", TenantContext::require);
-              return List.of(nested, TenantContext.require());
-            });
+            () ->
+                List.of(
+                    TenantContext.callAs("t_a", TenantContext::require), TenantContext.require()));
 
-    assertThat(seen).containsExactly("t_b", "t_a");
+    assertThat(seen).containsExactly("t_a", "t_a");
   }
 
   @ParameterizedTest

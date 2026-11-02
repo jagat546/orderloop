@@ -35,6 +35,9 @@
     <archunit.version>1.5.1</archunit.version>
     <spotless.version>3.10.4</spotless.version>
     <google-java-format.version>1.36.1</google-java-format.version>
+    <!-- Surefire and Failsafe read argLine. UTC keeps tests deterministic, and PostgreSQL 18 rejects
+         legacy zone aliases such as Asia/Calcutta that the JDBC driver sends from the JVM default. -->
+    <argLine>-Duser.timezone=UTC</argLine>
   </properties>
 
   <dependencyManagement>

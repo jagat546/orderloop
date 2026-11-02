@@ -25,6 +25,8 @@ TenantContext.callAs(tenantId, () -> tx.execute(status -> handler.handle(event))
 
 - Bind the scope before any connection is acquired, so the RLS DataSource sets the right tenant.
 - Never start a transaction outside a scope and rebind inside it.
+- A scope never switches tenant: `callAs` throws if another tenant is already bound, because a joined transaction would keep the outer tenant's connection. Finish one tenant's work before starting the next.
+- Never unwrap the `DataSource`. Raw pool connections still carry the last tenant's setting; `TenantAwareDataSource` resets it at every checkout.
 - Scoped values reach child threads only through `StructuredTaskScope`, which is still preview in Java 25. Pass the tenant explicitly to any other thread and rebind it there.
 
 ## Database
@@ -38,7 +40,8 @@ TenantContext.callAs(tenantId, () -> tx.execute(status -> handler.handle(event))
 ## JPA
 
 - Entities use Hibernate `@TenantId`. `@Filter` and `@FilterDef` are banned.
-- `find` by ID is not filtered by Hibernate. RLS is what protects it, so a cross-tenant lookup must return empty in tests.
+- Hibernate 7 also filters `find` and JPQL by the session's tenant, so a passing JPA test can prove only Hibernate. To prove RLS, open a session for one tenant while the scope is bound to another (see `TenantRlsIT`), and test native SQL.
+- Policies compare with `NULLIF(current_setting('app.tenant_id', true), '')`, so an unbound scope reads and writes nothing. `scripts/check-invariants.sh` enforces this, and rejects `USING (true)` for `orderloop_app`.
 - `spring.jpa.open-in-view=false` everywhere.
 
 ## Exemptions

@@ -103,7 +103,10 @@ class TenantWebTest {
   }
 
   @SpringBootConfiguration
-  @EnableAutoConfiguration
+  // Web only: JPA is on this module's test classpath for TenantRlsIT, but this test has no
+  // database.
+  @EnableAutoConfiguration(
+      excludeName = "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration")
   @Import(ProbeController.class)
   static class ProbeApp {}
 

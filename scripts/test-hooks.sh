@@ -90,12 +90,45 @@ two_sql="$good_sql
 CREATE TABLE orchestrator.u (
   id bigint PRIMARY KEY
 );"
+raw_policy_sql="$good_sql
+CREATE POLICY tenant_isolation ON orchestrator.t TO orderloop_app
+  USING (tenant_id = current_setting('app.tenant_id', true));"
+safe_policy_sql="$good_sql
+CREATE POLICY tenant_isolation ON orchestrator.t TO orderloop_app
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), ''));"
+spaced_policy_sql="$good_sql
+CREATE POLICY tenant_isolation ON orchestrator.t TO orderloop_app
+  USING (tenant_id = current_setting ('app.tenant_id', true));"
+wrapped_policy_sql="$good_sql
+CREATE POLICY tenant_isolation ON orchestrator.t TO orderloop_app
+  USING (tenant_id = current_setting(
+    'app.tenant_id', true));"
+mixed_policy_sql="$good_sql
+CREATE POLICY tenant_isolation ON orchestrator.t TO orderloop_app
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), '')) WITH CHECK (tenant_id = current_setting('app.tenant_id', true));"
+open_policy_sql="$good_sql
+CREATE POLICY anything ON orchestrator.t TO orderloop_app USING (true);"
+ops_policy_sql="$good_sql
+CREATE POLICY ops_scan ON orchestrator.t
+  TO orderloop_ops
+  USING (true)
+  WITH CHECK (true);"
 mig=order-orchestrator/src/main/resources/db/migration
 write_case "Good migration"             0 "$mig/V2__t.sql" "$good_sql"
 write_case "Migration without FORCE"    2 "$mig/V3__t.sql" "$nof_sql"
 write_case "Migration without tenant"   2 "$mig/V4__t.sql" "$not_sql"
 write_case "Second table unprotected"   2 "$mig/V5__t.sql" "$two_sql"
 write_case "Bad migration name"         2 "$mig/add_table.sql" "$good_sql"
+write_case "Policy without NULLIF"      2 "$mig/V7__t.sql" "$raw_policy_sql"
+write_case "Policy with NULLIF"         0 "$mig/V8__t.sql" "$safe_policy_sql"
+write_case "NULLIF missing, spaced"     2 "$mig/V9__t.sql" "$spaced_policy_sql"
+write_case "NULLIF missing, wrapped"    2 "$mig/V10__t.sql" "$wrapped_policy_sql"
+write_case "NULLIF only in USING"       2 "$mig/V11__t.sql" "$mixed_policy_sql"
+write_case "Open policy for app role"   2 "$mig/V12__t.sql" "$open_policy_sql"
+write_case "Open policy for ops role"   0 "$mig/V13__t.sql" "$ops_policy_sql"
+write_case "Exempt file, raw policy"    2 "$mig/V14__t.sql" "-- tenant-exempt: reference data
+CREATE POLICY p ON ref.x TO orderloop_app USING (code = current_setting('app.tenant_id', true));"
+write_case "Unwrap the DataSource"      2 "$m" 'dataSource.unwrap(HikariDataSource.class).getConnection();'
 write_case "Exempt migration"           0 "$mig/V6__t.sql" '-- tenant-exempt: country reference data
 CREATE TABLE ref.country (code text PRIMARY KEY);'
 

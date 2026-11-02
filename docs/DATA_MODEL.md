@@ -33,13 +33,13 @@ ALTER TABLE orchestrator.order_saga FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY tenant_isolation ON orchestrator.order_saga
   TO orderloop_app
-  USING (tenant_id = current_setting('app.tenant_id', true))
-  WITH CHECK (tenant_id = current_setting('app.tenant_id', true));
+  USING (tenant_id = NULLIF(current_setting('app.tenant_id', true), ''))
+  WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', true), ''));
 
 GRANT SELECT, INSERT, UPDATE ON orchestrator.order_saga TO orderloop_app;
 ```
 
-`current_setting('app.tenant_id', true)` returns NULL when unset, and `DataSource` sets it to an empty string when no tenant is bound. Neither matches a row.
+`TenantAwareDataSource` sets `app.tenant_id` at every connection checkout, to an empty string when no tenant is bound. `current_setting('app.tenant_id', true)` returns NULL when the setting was never made, and `NULLIF(..., '')` turns the empty string into NULL too. NULL equals nothing, so an unbound scope reads no rows and the `WITH CHECK` clause refuses every write, even a row with `tenant_id = ''`. `scripts/check-invariants.sh` rejects a policy that compares `current_setting('app.tenant_id'...)` without `NULLIF`. `platform-starter`'s `TenantRlsIT` proves this as `orderloop_app`.
 
 Tables that `orderloop_ops` must scan get one more policy, on that table only:
 
