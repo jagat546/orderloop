@@ -12,6 +12,8 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.library.GeneralCodingRules;
 import java.math.BigDecimal;
+import java.time.Clock;
+import java.time.Instant;
 
 /** Invariants from CLAUDE.md that can be checked on bytecode, across every module. */
 @AnalyzeClasses(packages = "app.orderloop", importOptions = ImportOption.DoNotIncludeTests.class)
@@ -46,6 +48,28 @@ class ArchitectureTest {
           .orShould()
           .haveRawType(BigDecimal.class)
           .because("money is long minor units plus an ISO 4217 currency (invariant 7)");
+
+  @ArchTest
+  static final ArchRule theSagaEngineIsPure =
+      classes()
+          .that()
+          .resideInAPackage("app.orderloop.orchestrator.saga..")
+          .should()
+          .onlyDependOnClassesThat()
+          .resideInAnyPackage("java..", "app.orderloop.dto..", "app.orderloop.orchestrator.saga..")
+          .because("decide must be testable with no Spring, database, broker or clock");
+
+  @ArchTest
+  static final ArchRule theSagaEngineReadsNoClock =
+      noClasses()
+          .that()
+          .resideInAPackage("app.orderloop.orchestrator.saga..")
+          .should()
+          .callMethod(Instant.class, "now")
+          .orShould()
+          .dependOnClassesThat()
+          .areAssignableTo(Clock.class)
+          .because("decide takes now as an argument, so tests control time");
 
   @ArchTest
   static final ArchRule downstreamServicesNeverDependOnEachOther =
