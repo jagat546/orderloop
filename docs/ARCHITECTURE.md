@@ -34,7 +34,7 @@ flowchart TD
 
 The request flow:
 
-1. Spring Security verifies the credential.
+1. Spring Security verifies the credential. In development this is an `X-Api-Key` header matched against `orderloop.security.dev-api-keys`. Keys work only with `orderloop.security.dev-api-keys-enabled=true`, and keys set without it stop startup; Shopify session tokens follow in M3.1. Every credential yields a `TenantPrincipal`.
 2. `TenantBindingFilter` takes the tenant from the authenticated principal, and rejects a mismatched `X-Tenant-ID` with 403.
 3. It binds the tenant with `ScopedValue` and copies it to MDC.
 4. `TenantAwareDataSource` sets `app.tenant_id` on each connection at checkout.
@@ -58,6 +58,9 @@ public final class TenantContext {
   }
 
   public static <R, X extends Throwable> R callAs(String tenantId, ScopedValue.CallableOp<R, X> op) throws X {
+    if (tenantId == null || tenantId.isBlank()) {
+      throw new IllegalArgumentException("tenantId is required");
+    }
     return ScopedValue.where(TENANT, tenantId).call(op);
   }
 }

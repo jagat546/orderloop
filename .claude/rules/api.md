@@ -15,4 +15,5 @@ paths:
 - State-changing endpoints that can be retried accept an `Idempotency-Key`.
 - Approving a refund must record who approved it, when, and the exact amount shown to them.
 - Controllers stay thin: validate, call one application service, map the result.
+- Controllers return synchronously. `Callable`, `DeferredResult`, `WebAsyncTask`, `SseEmitter`, `ResponseBodyEmitter` and `StreamingResponseBody` run outside the request's tenant scope and fail closed with 500 or 401. Add an ArchUnit rule for this with the first controller.
 - Keep the OpenAPI document current, because the dashboard's types are generated from it.
