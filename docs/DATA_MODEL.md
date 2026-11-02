@@ -52,7 +52,7 @@ CREATE POLICY ops_scan ON orchestrator.saga_deadline
 GRANT SELECT, UPDATE ON orchestrator.saga_deadline TO orderloop_ops;
 ```
 
-`tenant_id` is an opaque text ID such as `t_01J...`, not the shop domain.
+`tenant_id` is an opaque text ID such as `t_01J...`, not the shop domain. It matches `t_[A-Za-z0-9]{1,64}`, which `TenantContext` enforces.
 
 Each schema migration also needs `GRANT USAGE ON SCHEMA <schema> TO orderloop_app, orderloop_ops`.
 
@@ -129,7 +129,7 @@ CREATE TABLE <schema>.processed_event (
 );
 ```
 
-Both also get forced RLS and the tenant policy. `orderloop_app` may insert into `outbox` (plus `USAGE` on `outbox_id_seq`), and `orderloop_ops` may read and mark it through an `ops_scan` policy. A nightly job purges published rows after 7 days and processed events after 30 days.
+Both also get forced RLS and the tenant policy. `orderloop_app` may insert into `outbox` (plus `USAGE` on `outbox_id_seq`), and `orderloop_ops` may read and mark it through an `ops_scan` policy. `orderloop_app` may select and insert `processed_event`; `V3__processed_event.sql` in `platform-starter`'s test migrations is a complete example. A nightly job purges published rows after 7 days and processed events after 30 days.
 
 `payload` is `json`, not `jsonb`. `jsonb` reformats the text and reorders keys, so the relay would send different bytes from the form pinned by `common-dto`'s golden file. `json` validates the text and keeps it exactly. `platform-starter/src/test/resources/db/migration/V2__outbox.sql` is a complete example with policies and grants.
 

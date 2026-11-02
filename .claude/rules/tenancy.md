@@ -16,6 +16,7 @@ paths:
 - Tenant comes from a verified credential: Shopify session token, API key or webhook signature.
 - If `X-Tenant-ID` is present and differs from the verified tenant, return 403. Never use it as the source.
 - Access tenant identity only through `TenantContext.require()`. It throws when unbound.
+- A tenant ID matches `t_[A-Za-z0-9]{1,64}`. `TenantContext.callAs` refuses anything else, including stray spaces, so a near-miss cannot become a tenant of its own.
 
 ## Scope
 

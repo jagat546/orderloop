@@ -51,6 +51,14 @@ class TenantContextTest {
   }
 
   @ParameterizedTest
+  @ValueSource(strings = {" t_a", "t_a ", "T_a", "shop.myshopify.com", "t_", "t_a/b"})
+  void refusesToBindAMalformedTenant(String tenantId) {
+    assertThat(TenantContext.isValidTenantId(tenantId)).isFalse();
+    assertThatThrownBy(() -> TenantContext.callAs(tenantId, () -> "never"))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @ParameterizedTest
   @NullAndEmptySource
   @ValueSource(strings = " ")
   void refusesToBindABlankTenant(String tenantId) {

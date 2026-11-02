@@ -1,3 +1,4 @@
 app.orderloop.platform.tenant.TenantWebAutoConfiguration
 app.orderloop.platform.tenant.TenantDataAutoConfiguration
 app.orderloop.platform.outbox.OutboxAutoConfiguration
+app.orderloop.platform.inbox.InboxAutoConfiguration

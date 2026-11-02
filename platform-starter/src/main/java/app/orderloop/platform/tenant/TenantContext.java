@@ -1,6 +1,7 @@
 package app.orderloop.platform.tenant;
 
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 /**
  * The verified tenant for the current scope (invariant 3). Bound only from a verified credential,
@@ -11,8 +12,15 @@ import java.util.Optional;
 public final class TenantContext {
 
   private static final ScopedValue<String> TENANT = ScopedValue.newInstance();
+  // Opaque IDs such as t_01J...; never a shop domain. Rejects stray spaces and look-alikes.
+  private static final Pattern TENANT_ID = Pattern.compile("t_[A-Za-z0-9]{1,64}");
 
   private TenantContext() {}
+
+  /** Whether a value has the shape of a tenant ID. Says nothing about whether the tenant exists. */
+  public static boolean isValidTenantId(String tenantId) {
+    return tenantId != null && TENANT_ID.matcher(tenantId).matches();
+  }
 
   public static String require() {
     if (!TENANT.isBound()) {
@@ -27,8 +35,8 @@ public final class TenantContext {
 
   public static <R, X extends Throwable> R callAs(String tenantId, ScopedValue.CallableOp<R, X> op)
       throws X {
-    if (tenantId == null || tenantId.isBlank()) {
-      throw new IllegalArgumentException("tenantId is required");
+    if (!isValidTenantId(tenantId)) {
+      throw new IllegalArgumentException("tenantId must look like t_01J..., not blank or padded");
     }
     // A transaction joined inside a nested scope would keep the outer tenant's connection and data.
     if (TENANT.isBound() && !TENANT.get().equals(tenantId)) {

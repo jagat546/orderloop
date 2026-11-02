@@ -12,7 +12,7 @@ OrderLoop ships first as an open-source project (ADR 0007). M1 builds the reliab
 - [x] M1.4 Build tenant context: `TenantContext`, `TenantBindingFilter`, API-key auth for development. Done when: a missing credential returns 401, a mismatched header returns 403, and scope tests pass on virtual threads.
 - [x] M1.5 Build RLS: `TenantAwareDataSource`, Hibernate `@TenantId`, a sample table. Done when: as `orderloop_app`, tenant B cannot read, update or delete tenant A's row through JPA `find` or native SQL, and an unbound scope sees nothing.
 - [x] M1.6 Build the outbox and relay. Done when: a rollback publishes nothing, a crash after commit still publishes, and a second relay stays idle while the first holds the lock.
-- [ ] M1.7 Build `InboxConsumer` and dead-letter handling. Done when: a duplicate changes state once, a poison message reaches the dead-letter topic with its tenant, and a missing tenant header is rejected.
+- [x] M1.7 Build `InboxConsumer` and dead-letter handling. Done when: a duplicate changes state once, a poison message reaches the dead-letter topic with its tenant, and a missing tenant header is rejected.
 - [ ] M1.8 Build the pure saga engine: states, events, `decide`, table-driven tests. Done when: every row in `docs/SAGA.md` has success, failure and late-reply tests, with no Spring.
 - [ ] M1.9 Build orchestrator persistence and a development order API. Done when: creating an order emits `ReserveInventoryCmd` through the outbox, and concurrent replies are safe.
 - [ ] M1.10 Build `inventory-service` with a simulator. Done when: an order reaches `VerifyingPayment`, and a failure opens an exception.

@@ -9,11 +9,16 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.internals.RecordHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +27,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.ListenerExecutionFailedException;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.json.JsonMapper;
@@ -42,6 +48,9 @@ public final class OutboxRelay implements AutoCloseable {
   private static final JsonMapper JSON = JsonMapper.builder().build();
   // Every send has a final result by the delivery timeout; this margin only guards against hangs.
   private static final Duration WAIT_MARGIN = Duration.ofSeconds(5);
+
+  /** Dead letters for a topic go to the topic's name plus this suffix. */
+  public static final String DEAD_LETTER_SUFFIX = ".dlt";
 
   private final HikariDataSource opsDataSource;
   private final DefaultKafkaProducerFactory<String, String> producerFactory;
@@ -99,6 +108,51 @@ public final class OutboxRelay implements AutoCloseable {
           jdbc.batchUpdate(markPublished, published.stream().map(id -> new Object[] {id}).toList());
           return OptionalInt.of(published.size());
         });
+  }
+
+  /**
+   * Sends a record that could not be handled to {@code <topic>.dlt}, with every original header,
+   * including the tenant, plus where it came from and the failure's class. The failure's message is
+   * not copied, because it can quote the payload. Throws if Kafka does not acknowledge, so the
+   * record is not committed as handled and is tried again.
+   */
+  public void deadLetter(ConsumerRecord<?, ?> record, Exception failure) {
+    var dead =
+        new ProducerRecord<String, String>(
+            record.topic() + DEAD_LETTER_SUFFIX, text(record.key()), text(record.value()));
+    record.headers().forEach(dead.headers()::add);
+    dead.headers().add(header("x-dlt-original-topic", record.topic()));
+    dead.headers().add(header("x-dlt-original-partition", Integer.toString(record.partition())));
+    dead.headers().add(header("x-dlt-original-offset", Long.toString(record.offset())));
+    dead.headers().add(header("x-dlt-exception", unwrap(failure).getClass().getName()));
+    try {
+      kafka.send(dead).get(wait.toMillis(), TimeUnit.MILLISECONDS);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while dead-lettering", e);
+    } catch (ExecutionException | TimeoutException e) {
+      throw new IllegalStateException("Could not dead-letter a record from " + record.topic(), e);
+    }
+    Header eventId = record.headers().lastHeader(Headers.EVENT_ID);
+    log.warn(
+        "Dead-lettered event {} from {} after {}",
+        eventId == null ? "without an ID" : new String(eventId.value(), UTF_8),
+        record.topic(),
+        unwrap(failure).getClass().getSimpleName());
+  }
+
+  /** Keeps a byte-array key or value as its text instead of a "[B@..." reference. */
+  private static String text(Object value) {
+    return value instanceof byte[] bytes ? new String(bytes, UTF_8) : Objects.toString(value, null);
+  }
+
+  /** Spring Kafka wraps listener failures; the class that matters is the one the listener threw. */
+  private static Throwable unwrap(Throwable failure) {
+    Throwable cause = failure;
+    while (cause instanceof ListenerExecutionFailedException && cause.getCause() != null) {
+      cause = cause.getCause();
+    }
+    return cause;
   }
 
   int batchSize() {

@@ -26,8 +26,8 @@ public final class DevApiKeyAuthenticationProvider implements AuthenticationProv
   public DevApiKeyAuthenticationProvider(List<DevApiKey> keys) {
     var seen = new HashSet<String>();
     for (DevApiKey entry : keys) {
-      if (entry.tenant() == null || entry.tenant().isBlank()) {
-        throw new IllegalArgumentException("Every dev API key needs a tenant");
+      if (!TenantContext.isValidTenantId(entry.tenant())) {
+        throw new IllegalArgumentException("Every dev API key needs a tenant ID like t_01J...");
       }
       if (entry.key() == null || entry.key().length() < MIN_KEY_LENGTH) {
         throw new IllegalArgumentException(

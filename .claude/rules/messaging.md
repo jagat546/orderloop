@@ -27,15 +27,21 @@ paths:
 Every `@KafkaListener` delegates to `InboxConsumer`:
 
 ```java
-@KafkaListener(topics = Topics.INVENTORY_COMMANDS)
-void on(ConsumerRecord<String, byte[]> record) {
-  inboxConsumer.handle(record, ReserveInventoryCmd.class, handler::reserve);
+@KafkaListener(topics = Topics.INVENTORY_COMMANDS, groupId = "inventory-service")
+void on(ConsumerRecord<String, String> record) {
+  inboxConsumer.handle(record, SagaCommand.class, command -> switch (command) {
+    case ReserveInventoryCmd c -> handler.reserve(c);
+    case ReleaseInventoryCmd c -> handler.release(c);
+    // ... one case per command this topic carries; no default branch
+  });
 }
 ```
 
+Pass the sealed parent when a topic carries several types. The concrete type comes from `x-event-type`. Call `handle` from the listener thread, outside any transaction.
+
 `InboxConsumer` does this, in order:
 
-1. Reads `x-tenant-id` and `x-event-id` from headers and sends the record to the dead-letter topic if either is missing or the tenant is unknown.
+1. Reads `x-tenant-id`, `x-event-id` and `x-event-type`, and throws `InvalidMessageException` (dead-lettered at once) if one is missing or malformed, the type is not a subtype of the one given, or the payload is unreadable or has no `orderId`. Integers must be JSON integers: `12.9`, `"500"` and `1e3` are refused, never truncated. Unknown fields are ignored. Today only the tenant ID's format is checked; rejecting a well-formed but unknown tenant needs the tenant table (M2.2).
 2. Binds `TenantContext` and copies the tenant to MDC.
 3. Opens a transaction and inserts into `processed_event`. On conflict it commits and returns.
 4. Runs the handler in that same transaction, and commits.
@@ -48,6 +54,10 @@ void on(ConsumerRecord<String, byte[]> record) {
 - Payloads carry IDs and `Money` amounts (minor units and currency). They never carry names, phones, emails or addresses.
 - Add fields compatibly. A breaking change needs a new type and a new version.
 - Use exponential backoff with a bounded number of retries, then a dead-letter topic. Keep the tenant header on dead letters.
+- `InboxAutoConfiguration` sets this up for every listener: `orderloop.inbox.max-retries` (default 4), doubling from `initial-interval`. A record that can never be handled (no tenant or event ID, wrong type, unreadable) throws `InvalidMessageException` and is dead-lettered without retries.
+- Dead letters go to `<topic>.dlt` through `OutboxRelay.deadLetter`, so the relay stays the only class that sends to Kafka. They carry every original header plus `x-dlt-original-topic`, `-partition`, `-offset` and `x-dlt-exception` (a class name only, since messages can quote payloads). Each `.dlt` topic must exist, because auto-create is off.
+- A dead-lettered record's offset is committed only when a later record on its partition succeeds. After a restart on a quiet partition the record is handled again, so it can be dead-lettered twice, or dead-lettered and later handled. The inbox keeps state correct. Anything that counts or replays dead letters must deduplicate by `x-dlt-original-topic` plus `x-event-id`, and check `processed_event` before replaying.
+- `processed_event.consumer` is the listener's consumer group, so two groups on one topic each handle every event once.
 
 ## Provider calls
 
