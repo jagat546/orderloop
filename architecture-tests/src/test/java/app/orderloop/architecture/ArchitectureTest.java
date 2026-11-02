@@ -1,6 +1,8 @@
 package app.orderloop.architecture;
 
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
@@ -9,12 +11,41 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.library.GeneralCodingRules;
+import java.math.BigDecimal;
 
 /** Invariants from CLAUDE.md that can be checked on bytecode, across every module. */
 @AnalyzeClasses(packages = "app.orderloop", importOptions = ImportOption.DoNotIncludeTests.class)
 class ArchitectureTest {
 
   private static final String ASYNC = "org.springframework.scheduling.annotation.Async";
+
+  @ArchTest
+  static final ArchRule contractsArePureJava =
+      classes()
+          .that()
+          .resideInAPackage("app.orderloop.dto..")
+          .should()
+          .onlyDependOnClassesThat()
+          .resideInAnyPackage("java..", "app.orderloop.dto..")
+          .because("every service shares common-dto, so it carries no Spring or other library");
+
+  @ArchTest
+  static final ArchRule contractsNeverUseFloatingPointOrBigDecimal =
+      noFields()
+          .that()
+          .areDeclaredInClassesThat()
+          .resideInAPackage("app.orderloop.dto..")
+          .should()
+          .haveRawType(double.class)
+          .orShould()
+          .haveRawType(float.class)
+          .orShould()
+          .haveRawType(Double.class)
+          .orShould()
+          .haveRawType(Float.class)
+          .orShould()
+          .haveRawType(BigDecimal.class)
+          .because("money is long minor units plus an ISO 4217 currency (invariant 7)");
 
   @ArchTest
   static final ArchRule downstreamServicesNeverDependOnEachOther =

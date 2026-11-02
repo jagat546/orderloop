@@ -87,6 +87,7 @@ The setting is overwritten at every checkout, so a pooled connection cannot carr
 
 ## Reliable messaging
 
+- **Contracts:** `common-dto` holds `Money`, the sealed `SagaCommand` and `SagaEvent` records, `Envelope` and `Headers`, with no dependencies. `MessageTypes` names each type for the `x-event-type` header, and `common-dto/src/test/resources/golden/messages.txt` pins the JSON form of every message.
 - **Outbox:** the domain change and its outbox row commit together. One relay per service publishes in ID order, per `.claude/rules/messaging.md`.
 - **Ordering:** topics are keyed by `orderId`, and optimistic locking on the saga row serialises writes for one order.
 - **Inbox:** `processed_event` is inserted in the same transaction as the handler's changes, so a redelivered event does nothing.
