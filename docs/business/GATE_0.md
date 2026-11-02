@@ -1,6 +1,8 @@
 # Gate 0: prove someone pays
 
-Test willingness to pay before writing product code. The goal is 3 paid audits within 30 days.
+**Optional.** Since ADR 0007, OrderLoop is built first as an open-source project, and this gate is not in the build path. Run it only if you decide to sell audits or a hosted version. It was written for Indian D2C brands, so adapt the audience, currency and providers to the market you test.
+
+Test willingness to pay before investing in sales. The goal is 3 paid audits within 30 days.
 
 ## First: check you can do this
 

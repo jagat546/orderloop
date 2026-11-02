@@ -43,7 +43,7 @@ void on(ConsumerRecord<String, byte[]> record) {
 - Commands and events are records in `common-dto`, implementing sealed interfaces.
 - Topics are keyed by `orderId`, so one order's messages stay in order.
 - Headers: `x-tenant-id`, `x-event-id`, `x-event-type`, `x-schema-version`, `x-causation-id`, `traceparent`.
-- Payloads carry IDs and paise amounts. They never carry names, phones, emails or addresses.
+- Payloads carry IDs and `Money` amounts (minor units and currency). They never carry names, phones, emails or addresses.
 - Add fields compatibly. A breaking change needs a new type and a new version.
 - Use exponential backoff with a bounded number of retries, then a dead-letter topic. Keep the tenant header on dead letters.
 

@@ -1,6 +1,6 @@
 # Deployment
 
-One 16 GB VPS with Docker Compose until revenue justifies more. All sizing here is an estimate, so measure it during M4.
+The reference production setup is one 16 GB VPS with Docker Compose. All sizing here is an estimate, so measure it during M4. The M1 demo (`docker compose up` with simulators) is for evaluation only, not production.
 
 ## Memory budget
 
@@ -16,7 +16,7 @@ One 16 GB VPS with Docker Compose until revenue justifies more. All sizing here 
 
 ## Choosing a server
 
-Reprice at deploy time. [Hetzner's prices rose sharply in 2026, and its CX and CAX plans showed as unavailable in September and October](https://www.bitdoze.com/es/hetzner-cloud-precios-2026/). Compare Indian regions too, for latency and data location.
+Reprice at deploy time. [Hetzner's prices rose sharply in 2026, and its CX and CAX plans showed as unavailable in September and October](https://www.bitdoze.com/es/hetzner-cloud-precios-2026/). Compare regions close to your merchants too, for latency and data location.
 
 ## Layout
 
@@ -61,4 +61,4 @@ Webhooks retry, so a short outage delays orders and loses none. Version 1 makes 
 
 ## When to upgrade
 
-Move to a second node and managed PostgreSQL at about 20 paying merchants, or at the first contract requiring an SLA.
+Move to a second node and managed PostgreSQL when measured load outgrows one server, or when a merchant needs an SLA.

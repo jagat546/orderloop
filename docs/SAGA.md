@@ -57,7 +57,7 @@ After a refund, `Refunding` leads to `Releasing` when stock is still held, and t
 
 ## Observe and action modes
 
-Merchants usually already have Shopify and Shiprocket wired together. If OrderLoop booked shipments or moved stock by default, it would create duplicate shipments and wrong stock counts.
+Merchants usually already have Shopify and a shipping provider wired together. If OrderLoop booked shipments or moved stock by default, it would create duplicate shipments and wrong stock counts.
 
 | Command | Observe mode (default) | Action mode |
 |---|---|---|
@@ -67,7 +67,7 @@ Merchants usually already have Shopify and Shiprocket wired together. If OrderLo
 | `ReleaseInventoryCmd`, `RestockInventoryCmd` | Open a finding | Change stock after approval |
 | `RefundPaymentCmd` | Blocked at the adapter | Refund after human approval |
 
-Observe mode needs less customer data, because the address is not needed to book anything. Automated tests and the portfolio demo use action mode against simulators.
+Observe mode needs less customer data, because the address is not needed to book anything. Automated tests and the Docker demo use action mode against simulators.
 
 ## Rules
 
@@ -75,4 +75,4 @@ Observe mode needs less customer data, because the address is not needed to book
 - A late or duplicate reply is ignored and counted.
 - A compensation undoes only completed steps, in reverse order.
 - A failed compensation opens an exception; it never loops forever.
-- Refund amounts come from the provider's record of what was captured, minus any earlier refund.
+- Refund amounts come from the provider's record of what was captured, minus any earlier refund, in the captured currency.

@@ -27,8 +27,10 @@ java_violations() {
     echo "Use SLF4J, not System.out or System.err"
   grep -qE '@(Filter|FilterDef)\b' <<<"$code" &&
     echo "Hibernate @Filter is banned for tenancy; use @TenantId and RLS"
-  grep -qiE '\b(double|float|BigDecimal)[[:space:]]+[a-z_]*(amount|price|total|paise|rupee|refund|money)[a-z_]*' <<<"$code" &&
-    echo "Money must be long paise, not double, float or BigDecimal"
+  grep -qiE '\b(double|float|BigDecimal)[[:space:]]+[a-z_]*(amount|price|total|minor|cost|refund|money)[a-z_]*' <<<"$code" &&
+    echo "Money is long minor units plus an ISO 4217 currency (Money), not double, float or BigDecimal"
+  grep -qiE 'paise' <<<"$code" &&
+    echo "Paise is retired; use Money, with minor units and a currency code (ADR 0007)"
 
   case "$path" in
     */outbox/*) ;;

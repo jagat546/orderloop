@@ -28,9 +28,9 @@ This is an engineering checklist, not legal advice. Have a qualified person conf
 - Implement the mandatory privacy webhooks before submission.
 - On uninstall: revoke tokens, stop processing and schedule deletion.
 
-## India's DPDP Act
+## Data protection law
 
-[Data fiduciary duties apply from May 2027](https://bhattandjoshiassociates.com/?p=33581) under the published timeline. OrderLoop would generally act as a processor for merchants, which a lawyer should confirm. Plan for:
+Which law applies depends on where the operator and the merchants' customers are, for example GDPR in the EU and UK, or India's DPDP Act, whose [data fiduciary duties apply from May 2027](https://bhattandjoshiassociates.com/?p=33581) under the published timeline. Whoever runs OrderLoop for merchants generally acts as their processor, which a lawyer should confirm. Plan for:
 
 - A processor agreement with each merchant
 - Purpose limits and deletion on request or at the end of the contract
@@ -39,7 +39,13 @@ This is an engineering checklist, not legal advice. Have a qualified person conf
 
 ## Payments regulation
 
-OrderLoop must never hold or route customer funds. Refunds run through the merchant's own Razorpay account. Get advice before changing this, because holding funds may bring payment-aggregator regulation.
+OrderLoop must never hold or route customer funds. Refunds run through the merchant's own payment provider account. Get advice before changing this, because holding funds may bring payment-aggregator regulation.
+
+## Open source
+
+- Before the repository goes public: scan the whole git history for secrets, and confirm it holds no employer or client material. See roadmap section P.
+- Simulators need no secrets, so the demo and CI run without any.
+- Publish a security reporting policy, so vulnerabilities are not reported in public issues.
 
 ## Audit trail
 

@@ -1,7 +1,8 @@
 # OrderLoop
 
-Shopify app that finds and closes money leaking from stuck orders at Indian D2C brands.
-Customers pay for recovered money. Saga, outbox and multi-tenancy are how we earn that trust, not the product.
+Open-source Shopify app that finds and closes money leaking from stuck orders, in any currency.
+It runs on simulators with no accounts or keys; real providers plug in behind interfaces (ADR 0007).
+Merchants trust it with money. Saga, outbox and multi-tenancy are how we earn that trust, not the product.
 
 Status and next work: `docs/ROADMAP.md`. Run `/next-slice` to continue.
 
@@ -36,11 +37,11 @@ Java 21 is not acceptable here: `ScopedValue` is only final from Java 25. See `d
 |---|---|
 | `common-dto` | Commands, events and envelope as records. Pure Java, no Spring |
 | `platform-starter` | Tenant context, RLS DataSource, outbox relay, inbox template, logging |
-| `integration-gateway` | Shopify OAuth, billing, webhook verification, raw event storage |
+| `integration-gateway` | Shopify OAuth, webhook verification, raw event storage |
 | `order-orchestrator` | Saga state machine, deadlines, exceptions, leak findings, dashboard API |
 | `inventory-service` | Reacts to `ReserveInventoryCmd`, replies `InventoryReservedEvt` or `InventoryFailedEvt` |
-| `payment-service` | Reacts to `ProcessPaymentCmd`, replies `PaymentProcessedEvt` or `PaymentFailedEvt`; runs refunds |
-| `fulfilment-service` | Reacts to `BookShipmentCmd`, replies `ShipmentBookedEvt` or `ShipmentFailedEvt`; tracks NDR and RTO |
+| `payment-service` | Reacts to `ProcessPaymentCmd`, replies `PaymentProcessedEvt` or `PaymentFailedEvt`; runs refunds. Talks to `PaymentProvider`: simulator by default, Stripe first, Razorpay optional |
+| `fulfilment-service` | Reacts to `BookShipmentCmd`, replies `ShipmentBookedEvt` or `ShipmentFailedEvt`; tracks NDR and RTO. Talks to `FulfilmentProvider`: simulator by default, Shopify first, Shiprocket optional |
 | `web-dashboard` | Embedded app: money at risk, exceptions, approvals |
 | `deploy` | Production Compose, Caddy, backups |
 
@@ -56,7 +57,7 @@ Breaking one of these is a defect even if tests pass. Hooks and `scripts/check-i
 4. **Outbox only.** Domain change and outbox row commit in one transaction. Only the relay touches `KafkaTemplate`.
 5. **Every listener goes through `InboxConsumer`.** The inbox row commits with the handler's changes. Redis locks never provide correctness.
 6. **Provider side effects use intent, key, result, reconcile.** No HTTP inside a database transaction.
-7. **Money is `long` paise.** Never `double`, `float` or `BigDecimal` in the domain.
+7. **Money is `long` minor units plus an ISO 4217 currency code**, as `Money` in `common-dto`. Never `double`, `float` or `BigDecimal` in the domain, never an assumed two decimals, and never arithmetic or totals across currencies.
 8. **Refunds need human approval in version 1.** Observe mode is the default for every tenant.
 9. **No PII in logs or Kafka.** Reference orders by ID.
 10. **Applied migrations are immutable.** Add a new one.
@@ -75,18 +76,36 @@ Breaking one of these is a defect even if tests pass. Hooks and `scripts/check-i
 - Never use code, data or documents from any employer or client in this repo.
 - Commit or push only when asked.
 
+## Skills and plugins
+
+The design in `docs/` is approved, so do not run brainstorming to restart it. Project skills, rules and this file win where they overlap with a plugin skill.
+
+| Work | Use |
+|---|---|
+| Picking the next piece of work | `/next-slice` |
+| Planning a slice with several steps | `superpowers:writing-plans` |
+| Test-first development | `superpowers:test-driven-development`; `test-engineer` agent for failure paths |
+| Saga, tenant, contract, provider or detector changes | `/add-saga-step`, `/add-tenant-entity`, `/add-kafka-contract`, `/add-integration`, `/add-leak-detector` |
+| Debugging | `superpowers:systematic-debugging` |
+| Code review | `/code-review`, `superpowers:requesting-code-review`; `saga-reviewer` and `tenant-auditor` agents |
+| Verification | `/verify`. `superpowers:verification-before-completion` adds only: no claim without fresh output |
+| CI | `cicd-automation:github-actions-templates` |
+| Frontend | `frontend-design:frontend-design`, `playwright-cli` for end-to-end tests |
+| Design decisions | `/record-decision` |
+
 ## Where to look
 
 | Question | File |
 |---|---|
-| Who pays and for what | `docs/PRODUCT.md` |
+| What it does and for whom | `docs/PRODUCT.md` |
 | How services and tenancy fit together | `docs/ARCHITECTURE.md` |
 | States, commands, compensations, deadlines | `docs/SAGA.md` |
 | Tables, roles, RLS policies | `docs/DATA_MODEL.md` |
-| Shopify, Razorpay, Shiprocket | `docs/INTEGRATIONS.md` |
+| Shopify, Stripe, simulators and optional adapters | `docs/INTEGRATIONS.md` |
 | Secrets, PII, compliance | `docs/SECURITY.md` |
 | Running in production | `docs/DEPLOYMENT.md` |
-| Selling before building | `docs/GATE_0.md` |
+| Licence options (not yet chosen) | `docs/LICENSING.md` |
+| Pricing and sales (optional) | `docs/business/` |
 | Why a decision was made | `docs/adr/` |
 
 Path-scoped rules in `.claude/rules/` load automatically when you touch matching files.

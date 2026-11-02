@@ -11,7 +11,8 @@ paths:
 - Verify webhook signatures against the raw request bytes, before parsing and in constant time.
 - Store the raw event, then answer 2xx quickly. Process it asynchronously through the outbox. Razorpay expects a response within 5 seconds.
 - Deduplicate on the provider's event ID, and assume events arrive out of order.
-- Each provider sits behind a port interface in its service, with a simulator for development and tests.
+- Each provider sits behind a port interface in its service (`PaymentProvider`, `FulfilmentProvider`). The simulator is the default adapter, so the system runs with no accounts or keys. Real adapters are opt-in by configuration: Shopify and Stripe first, Razorpay and Shiprocket optional.
+- Map provider amounts to `Money` explicitly. A provider's minor unit can differ from ISO 4217 for some currencies, so test the mapping.
 - Encrypt provider tokens with AES-256-GCM before storing them. Never log them.
 - Set a connect and read timeout on every call, and bound concurrency per tenant so one merchant cannot starve others.
 - Treat a timeout as "unknown", not "failed". Query the provider before retrying a side effect.

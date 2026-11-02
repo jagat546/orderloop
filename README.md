@@ -1,8 +1,8 @@
 # OrderLoop
 
-A Shopify app that finds and closes money leaking from stuck orders at Indian D2C brands. Built as a multi-tenant, saga-orchestrated Spring Boot system.
+An open-source Shopify app that finds and closes money leaking from stuck orders, in any currency. Built as a multi-tenant, saga-orchestrated Spring Boot system. Payment and fulfilment providers sit behind interfaces, and simulators are the default, so it runs with no accounts or API keys.
 
-This repository currently holds the design and the Claude Code setup. No application code exists yet.
+This repository holds the design and the Claude Code setup. No application code exists yet. The one-command Docker demo arrives at the end of M1 in `docs/ROADMAP.md`. No licence has been chosen yet; see `docs/LICENSING.md`.
 
 ## Start here
 
@@ -13,7 +13,7 @@ This repository currently holds the design and the Claude Code setup. No applica
 5. Run `/hooks` and `/memory` to confirm they loaded.
 6. Run `/next-slice`.
 
-Gate 0 in `docs/ROADMAP.md` is about selling, and needs you more than Claude Code. Read `docs/GATE_0.md`.
+Pricing and sales material is optional and lives in `docs/business/`, outside the build path.
 
 ## What is here
 
@@ -26,7 +26,8 @@ Gate 0 in `docs/ROADMAP.md` is about selling, and needs you more than Claude Cod
 | `.claude/hooks/` | Blocks banned code, edits to committed migrations, secrets access and destructive commands |
 | `.claude/settings.json` | Permissions and hook registration |
 | `scripts/` | Invariant checks and hook tests |
-| `docs/` | Product, architecture, saga, data model, integrations, security, deployment, roadmap, Gate 0, ADRs |
+| `docs/` | Product, architecture, saga, data model, integrations, security, deployment, roadmap, licence options, ADRs |
+| `docs/business/` | Optional: Gate 0 and pricing |
 
 Put personal preferences in `CLAUDE.local.md` or `.claude/settings.local.json`. Both are ignored by Git.
 

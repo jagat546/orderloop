@@ -19,7 +19,7 @@ Target: `$ARGUMENTS`
    - `@TenantId` on `tenantId`
    - protected no-argument constructor
    - domain methods, no public setters
-   - money as `long` with a `Paise` suffix
+   - money as `long` with a `Minor` suffix plus a `currency` field, exposed as `Money`
 4. Add the repository, and expose records from the service layer rather than the entity.
 5. Update `docs/DATA_MODEL.md`.
 6. Run `/verify`, and ask the `tenant-auditor` agent to review the diff.

@@ -1,6 +1,6 @@
 # Data model
 
-Each service has its own schema. Money is `bigint` paise, and time is `timestamptz`.
+Each service has its own schema. Money is a `bigint` column in minor units with a `_minor` suffix, beside a `currency` column holding an ISO 4217 code (ADR 0007). Time is `timestamptz`.
 
 ## Roles
 
@@ -19,7 +19,8 @@ CREATE TABLE orchestrator.order_saga (
   state text NOT NULL,
   mode text NOT NULL DEFAULT 'OBSERVE',
   version bigint NOT NULL DEFAULT 0,
-  order_total_paise bigint NOT NULL CHECK (order_total_paise >= 0),
+  order_total_minor bigint NOT NULL CHECK (order_total_minor >= 0),
+  currency text NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (tenant_id, order_id)
@@ -82,9 +83,9 @@ The gateway resolves a webhook's tenant by looking up `shop_domain` as `orderloo
 | `order_saga` | As above |
 | `saga_step_log` | `tenant_id`, `order_id`, `seq`, `from_state`, `to_state`, `cause_event_id`, `at` |
 | `saga_deadline` | `tenant_id`, `order_id`, `kind`, `due_at`, `status` |
-| `exception_case` | `tenant_id`, `case_id`, `order_id`, `reason`, `amount_at_risk_paise`, `status`, `resolved_by` |
-| `leak_finding` | `tenant_id`, `detector`, `order_id`, `amount_at_risk_paise`, `is_estimate`, `status`, `recovered_paise`; unique on the first three |
-| `approval` | `tenant_id`, `approval_id`, `order_id`, `kind`, `amount_paise`, `approved_by`, `approved_at` |
+| `exception_case` | `tenant_id`, `case_id`, `order_id`, `reason`, `amount_at_risk_minor`, `currency`, `status`, `resolved_by` |
+| `leak_finding` | `tenant_id`, `detector`, `order_id`, `amount_at_risk_minor`, `recovered_minor`, `currency`, `is_estimate`, `status`; unique on the first three |
+| `approval` | `tenant_id`, `approval_id`, `order_id`, `kind`, `amount_minor`, `currency`, `approved_by`, `approved_at` |
 | `tenant_settings` | `tenant_id`, `automation_mode`, deadline overrides |
 
 ### `inventory`, `payment`, `fulfilment` schemas
@@ -92,9 +93,9 @@ The gateway resolves a webhook's tenant by looking up `shop_domain` as `orderloo
 | Table | Key columns |
 |---|---|
 | `inventory.allocation` | `tenant_id`, `order_id`, `sku`, `quantity`, `location_id`, `status` |
-| `payment.payment_record` | `tenant_id`, `order_id`, `provider_payment_id`, `method`, `captured_paise`, `refunded_paise`, `status` |
-| `payment.refund_intent` | `tenant_id`, `refund_id`, `order_id`, `amount_paise`, `idempotency_key`, `provider_refund_id`, `status` |
-| `payment.settlement` | `tenant_id`, `order_id`, `expected_paise`, `settled_paise`, `expected_at`, `settled_at` |
+| `payment.payment_record` | `tenant_id`, `order_id`, `provider_payment_id`, `method`, `captured_minor`, `refunded_minor`, `currency`, `status` |
+| `payment.refund_intent` | `tenant_id`, `refund_id`, `order_id`, `amount_minor`, `currency`, `idempotency_key`, `provider_refund_id`, `status` |
+| `payment.settlement` | `tenant_id`, `order_id`, `expected_minor`, `settled_minor`, `currency`, `expected_at`, `settled_at` |
 | `fulfilment.shipment` | `tenant_id`, `order_id`, `awb`, `carrier`, `status`, `ndr_count`, `last_event_at` |
 
 `refund_intent.status` is one of `INTENT`, `SENT`, `SUCCEEDED`, `FAILED`, `UNKNOWN`.

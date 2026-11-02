@@ -1,6 +1,6 @@
 ---
 name: provider-docs-researcher
-description: Confirms current Shopify, Razorpay, Shiprocket and other provider API behaviour from official docs. Use before coding or changing a provider integration.
+description: Confirms current Shopify, Stripe, Razorpay, Shiprocket and other provider API behaviour from official docs. Use before coding or changing a provider integration.
 tools: Read, Grep, Glob, WebFetch, WebSearch
 model: sonnet
 ---

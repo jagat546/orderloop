@@ -1,13 +1,12 @@
 # Architecture
 
-Five Spring Boot services and a React dashboard. PostgreSQL holds the truth and Kafka delivers messages.
+Five Spring Boot services and a React dashboard. PostgreSQL holds the truth and Kafka delivers messages. Payment and fulfilment providers sit behind ports whose default adapters are simulators (ADR 0007).
 
 ```mermaid
 flowchart TD
   M[Merchant] --> D[web-dashboard]
   S[Shopify] --> G[integration-gateway]
-  R[Razorpay] --> G
-  C[Shiprocket] --> G
+  W[Stripe, or optional Razorpay and Shiprocket] --> G
   D --> O[order-orchestrator]
   G --> O
   O <--> K[(Kafka)]
@@ -19,13 +18,15 @@ flowchart TD
   F --> DB
   O --> DB
   G --> DB
+  P --> PP[PaymentProvider: simulator, Stripe, Razorpay]
+  F --> FP[FulfilmentProvider: simulator, Shopify, Shiprocket]
 ```
 
 ## Boundaries
 
-- `integration-gateway` handles Shopify OAuth and billing, verifies webhook signatures, stores raw events and publishes normalized events. It makes no business decisions.
+- `integration-gateway` handles Shopify OAuth, verifies webhook signatures, stores raw events and publishes normalized events. It makes no business decisions.
 - `order-orchestrator` owns saga state, deadlines, exceptions, findings and the dashboard API. It verifies Shopify session tokens for dashboard calls.
-- `inventory-service`, `payment-service` and `fulfilment-service` react to commands, talk to their provider, and reply. They never call each other.
+- `inventory-service`, `payment-service` and `fulfilment-service` react to commands, talk to their provider through a port, and reply. They never call each other. With no configuration, every port uses its simulator.
 - Each service has its own PostgreSQL schema and connects with credentials that reach only that schema.
 - All services use `platform-starter`, so tenancy and messaging exist in one implementation.
 
@@ -100,7 +101,7 @@ The inbox cannot undo an HTTP call, so any provider write follows this pattern:
 3. **Result:** in a new transaction, save `SUCCEEDED` or `FAILED`, and write the reply to the outbox.
 4. **Timeout or crash:** mark the intent `UNKNOWN`. A reconciler queries the provider and settles it. It never blindly retries a provider that lacks idempotency.
 
-Razorpay refunds support this through the `X-Refund-Idempotency` header. Confirm equivalent support for each new operation; where none exists, query before retrying.
+Razorpay refunds support this through the `X-Refund-Idempotency` header. Confirm equivalent support for each adapter and operation, including Stripe; where none exists, query before retrying. Simulators honour idempotency keys, so the pattern is tested without accounts.
 
 ## Observability
 

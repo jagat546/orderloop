@@ -23,6 +23,6 @@ paths:
 | A publisher | A failure after commit still publishes, and a rollback publishes nothing |
 | A provider call | A crash between call and result does not repeat the side effect |
 | A saga state | Success, failure, late reply and missed deadline |
-| Money | Exact paise, with no rounding |
+| Money | Exact minor units and currency, with no rounding; include a zero-decimal and a three-decimal currency; mixing currencies fails |
 
 Avoid fixed sleeps. Poll with Awaitility, and inject a `Clock` for deadlines.
