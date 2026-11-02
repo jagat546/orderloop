@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Check repository invariants
+        run: bash scripts/check-invariants.sh
+
+      - name: Test Claude Code hooks
+        run: bash scripts/test-hooks.sh
+
+      - name: Build, format check, ArchUnit and tests
+        run: mvn -B -ntp verify

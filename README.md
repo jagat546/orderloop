@@ -2,7 +2,7 @@
 
 An open-source Shopify app that finds and closes money leaking from stuck orders, in any currency. Built as a multi-tenant, saga-orchestrated Spring Boot system. Payment and fulfilment providers sit behind interfaces, and simulators are the default, so it runs with no accounts or API keys.
 
-This repository holds the design and the Claude Code setup. No application code exists yet. The one-command Docker demo arrives at the end of M1 in `docs/ROADMAP.md`. No licence has been chosen yet; see `docs/LICENSING.md`.
+This repository holds the design, the Claude Code setup and the Maven skeleton (Java 25, Spring Boot 4.1.2, Spotless, ArchUnit, CI). No product logic exists yet. The one-command Docker demo arrives at the end of M1 in `docs/ROADMAP.md`. No licence has been chosen yet; see `docs/LICENSING.md`.
 
 ## Start here
 
@@ -26,6 +26,8 @@ Pricing and sales material is optional and lives in `docs/business/`, outside th
 | `.claude/hooks/` | Blocks banned code, edits to committed migrations, secrets access and destructive commands |
 | `.claude/settings.json` | Permissions and hook registration |
 | `scripts/` | Invariant checks and hook tests |
+| `pom.xml` and module folders | Maven multi-module build; `architecture-tests` holds the ArchUnit rules |
+| `.github/workflows/ci.yml` | Runs the invariant check, hook tests and `mvn verify` on every push and pull request |
 | `docs/` | Product, architecture, saga, data model, integrations, security, deployment, roadmap, licence options, ADRs |
 | `docs/business/` | Optional: Gate 0 and pricing |
 

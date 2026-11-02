@@ -42,6 +42,7 @@ Java 21 is not acceptable here: `ScopedValue` is only final from Java 25. See `d
 | `inventory-service` | Reacts to `ReserveInventoryCmd`, replies `InventoryReservedEvt` or `InventoryFailedEvt` |
 | `payment-service` | Reacts to `ProcessPaymentCmd`, replies `PaymentProcessedEvt` or `PaymentFailedEvt`; runs refunds. Talks to `PaymentProvider`: simulator by default, Stripe first, Razorpay optional |
 | `fulfilment-service` | Reacts to `BookShipmentCmd`, replies `ShipmentBookedEvt` or `ShipmentFailedEvt`; tracks NDR and RTO. Talks to `FulfilmentProvider`: simulator by default, Shopify first, Shiprocket optional |
+| `architecture-tests` | ArchUnit rules over every module; builds last |
 | `web-dashboard` | Embedded app: money at risk, exceptions, approvals |
 | `deploy` | Production Compose, Caddy, backups |
 
