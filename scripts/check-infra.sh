@@ -38,6 +38,10 @@ check "orderloop_app connects over TCP with its password" "orderloop_app" \
   "$("${compose[@]}" exec -T postgres sh -c \
     'PGPASSWORD="$POSTGRES_APP_PASSWORD" psql -h localhost -U orderloop_app -d orderloop -tAc "SELECT current_user"' 2>&1 | tr -d '\r')"
 
+check "orderloop_ops abandons a transaction left idle for a minute" "1min" \
+  "$(sql "SELECT split_part(unnest(setconfig), '=', 2) FROM pg_db_role_setting s
+          JOIN pg_roles r ON r.oid = s.setrole WHERE r.rolname = 'orderloop_ops'")"
+
 check "orderloop_app cannot create objects in public" "f" \
   "$(sql "SELECT has_schema_privilege('orderloop_app', 'public', 'CREATE')")"
 

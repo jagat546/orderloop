@@ -8,7 +8,7 @@ Each service has its own schema. Money is a `bigint` column in minor units with 
 |---|---|---|
 | `orderloop_owner` | Runs Flyway, owns tables | Never used by running request code |
 | `orderloop_app` | Normal service traffic | `NOSUPERUSER NOBYPASSRLS`, not an owner |
-| `orderloop_ops` | Outbox relay, deadline and detector scans | `NOSUPERUSER NOBYPASSRLS`, explicit policies on specific tables only |
+| `orderloop_ops` | Outbox relay, deadline and detector scans | `NOSUPERUSER NOBYPASSRLS`, explicit policies on specific tables only, `idle_in_transaction_session_timeout = 1min` |
 
 In development, `deploy/postgres/init/01-roles-and-schemas.sh` creates these roles and the five service schemas, owned by `orderloop_owner`. `bash scripts/check-infra.sh` checks them.
 
@@ -113,7 +113,7 @@ CREATE TABLE <schema>.outbox (
   schema_version int NOT NULL,
   aggregate_id text NOT NULL,
   topic text NOT NULL,
-  payload jsonb NOT NULL,
+  payload json NOT NULL,
   headers jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   published_at timestamptz
@@ -129,7 +129,9 @@ CREATE TABLE <schema>.processed_event (
 );
 ```
 
-Both also get forced RLS and the tenant policy. `orderloop_app` may insert into `outbox`, and `orderloop_ops` may read and mark it. A nightly job purges published rows after 7 days and processed events after 30 days.
+Both also get forced RLS and the tenant policy. `orderloop_app` may insert into `outbox` (plus `USAGE` on `outbox_id_seq`), and `orderloop_ops` may read and mark it through an `ops_scan` policy. A nightly job purges published rows after 7 days and processed events after 30 days.
+
+`payload` is `json`, not `jsonb`. `jsonb` reformats the text and reorders keys, so the relay would send different bytes from the form pinned by `common-dto`'s golden file. `json` validates the text and keeps it exactly. `platform-starter/src/test/resources/db/migration/V2__outbox.sql` is a complete example with policies and grants.
 
 ## PII
 

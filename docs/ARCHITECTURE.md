@@ -94,7 +94,7 @@ The setting is overwritten at every checkout, so a pooled connection cannot carr
 ## Reliable messaging
 
 - **Contracts:** `common-dto` holds `Money`, the sealed `SagaCommand` and `SagaEvent` records, `Envelope` and `Headers`, with no dependencies. `MessageTypes` names each type for the `x-event-type` header, and `common-dto/src/test/resources/golden/messages.txt` pins the JSON form of every message.
-- **Outbox:** the domain change and its outbox row commit together. One relay per service publishes in ID order, per `.claude/rules/messaging.md`.
+- **Outbox:** the domain change and its outbox row commit together: `OutboxWriter.append(topic, envelope)` refuses to run outside a transaction or for another tenant. `OutboxRelay` connects as `orderloop_ops` with its own small pool, producer (`acks=all`, idempotent, bounded timeouts) and polling thread, and runs when `orderloop.outbox.schema` is set. A row Kafka rejects waits, with its order's later rows, while other orders publish; it is logged by event ID. `orderloop_ops` ends a transaction left idle for a minute, so a frozen relay cannot hold the lock for hours. One relay per service publishes in ID order, per `.claude/rules/messaging.md`.
 - **Ordering:** topics are keyed by `orderId`, and optimistic locking on the saga row serialises writes for one order.
 - **Inbox:** `processed_event` is inserted in the same transaction as the handler's changes, so a redelivered event does nothing.
 - **Redis:** caching and rate limits only. Losing Redis slows the system but cannot corrupt it.

@@ -3,6 +3,7 @@ package app.orderloop.platform.tenant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import app.orderloop.platform.TestDatabase;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityManagerFactory;
 import jakarta.persistence.PersistenceContext;
@@ -31,7 +32,6 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.MountableFile;
 
 /**
  * Proves the database is the isolation boundary (invariant 2). Connects as orderloop_app, never a
@@ -44,36 +44,17 @@ import org.testcontainers.utility.MountableFile;
     webEnvironment = WebEnvironment.NONE,
     properties = {
       "spring.datasource.hikari.maximum-pool-size=1",
-      "spring.jpa.hibernate.ddl-auto=validate",
-      "spring.jpa.open-in-view=false",
-      "spring.flyway.schemas=orchestrator"
+      "spring.jpa.hibernate.ddl-auto=validate"
     })
 class TenantRlsIT {
 
-  private static final String OWNER_PASSWORD = "owner-test-password";
-  private static final String APP_PASSWORD = "app-test-password";
+  private static final String APP_PASSWORD = TestDatabase.APP_PASSWORD;
 
-  @Container
-  static final PostgreSQLContainer POSTGRES =
-      new PostgreSQLContainer("postgres:18.6")
-          .withDatabaseName("orderloop")
-          .withUsername("postgres")
-          .withPassword("superuser-test-password")
-          .withEnv("POSTGRES_OWNER_PASSWORD", OWNER_PASSWORD)
-          .withEnv("POSTGRES_APP_PASSWORD", APP_PASSWORD)
-          .withEnv("POSTGRES_OPS_PASSWORD", "ops-test-password")
-          // The same script that sets up the development stack creates the roles and schemas.
-          .withCopyFileToContainer(
-              MountableFile.forHostPath("../deploy/postgres/init/01-roles-and-schemas.sh"),
-              "/docker-entrypoint-initdb.d/01-roles-and-schemas.sh");
+  @Container static final PostgreSQLContainer POSTGRES = TestDatabase.newContainer();
 
   @DynamicPropertySource
   static void database(DynamicPropertyRegistry registry) {
-    registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
-    registry.add("spring.datasource.username", () -> "orderloop_app");
-    registry.add("spring.datasource.password", () -> APP_PASSWORD);
-    registry.add("spring.flyway.user", () -> "orderloop_owner");
-    registry.add("spring.flyway.password", () -> OWNER_PASSWORD);
+    TestDatabase.register(registry, POSTGRES);
   }
 
   @PersistenceContext private EntityManager em;

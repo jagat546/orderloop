@@ -12,6 +12,8 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
 CREATE ROLE orderloop_owner LOGIN PASSWORD :'owner_pw' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 CREATE ROLE orderloop_app   LOGIN PASSWORD :'app_pw'   NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 CREATE ROLE orderloop_ops   LOGIN PASSWORD :'ops_pw'   NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+-- A frozen relay must not hold its advisory lock until TCP notices, which can take hours.
+ALTER ROLE orderloop_ops SET idle_in_transaction_session_timeout = '1min';
 
 REVOKE ALL ON DATABASE :"db" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"db" TO orderloop_owner, orderloop_app, orderloop_ops;

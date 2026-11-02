@@ -16,6 +16,8 @@ paths:
 
 - Save the domain change and an `outbox` row in one local transaction. Code other than the relay never touches `KafkaTemplate`.
 - One relay per service, guarded by `pg_try_advisory_xact_lock`. Each batch runs in one transaction: lock, read unpublished rows in ID order, send and wait for acks, mark published.
+- A row Kafka rejects stays unpublished, and the same order's later rows wait behind it; other orders still publish. A row whose transaction commits late goes out in a later batch, so the guarantee is per-order sequence, not global ID order.
+- Write with `OutboxWriter.append(topic, envelope)` inside the domain transaction. It serialises with a fixed mapper, so the wire form matches `common-dto`'s golden file.
 - A crash after send and before commit republishes the batch. The inbox absorbs it.
 - Producer settings: `acks=all`, `enable.idempotence=true`.
 - Keep published rows for 7 days so events can be replayed after a Kafka loss.
