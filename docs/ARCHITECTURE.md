@@ -1,0 +1,114 @@
+# Architecture
+
+Five Spring Boot services and a React dashboard. PostgreSQL holds the truth and Kafka delivers messages.
+
+```mermaid
+flowchart TD
+  M[Merchant] --> D[web-dashboard]
+  S[Shopify] --> G[integration-gateway]
+  R[Razorpay] --> G
+  C[Shiprocket] --> G
+  D --> O[order-orchestrator]
+  G --> O
+  O <--> K[(Kafka)]
+  K <--> I[inventory-service]
+  K <--> P[payment-service]
+  K <--> F[fulfilment-service]
+  I --> DB[(PostgreSQL)]
+  P --> DB
+  F --> DB
+  O --> DB
+  G --> DB
+```
+
+## Boundaries
+
+- `integration-gateway` handles Shopify OAuth and billing, verifies webhook signatures, stores raw events and publishes normalized events. It makes no business decisions.
+- `order-orchestrator` owns saga state, deadlines, exceptions, findings and the dashboard API. It verifies Shopify session tokens for dashboard calls.
+- `inventory-service`, `payment-service` and `fulfilment-service` react to commands, talk to their provider, and reply. They never call each other.
+- Each service has its own PostgreSQL schema and connects with credentials that reach only that schema.
+- All services use `platform-starter`, so tenancy and messaging exist in one implementation.
+
+## Tenancy
+
+The request flow:
+
+1. Spring Security verifies the credential.
+2. `TenantBindingFilter` takes the tenant from the authenticated principal, and rejects a mismatched `X-Tenant-ID` with 403.
+3. It binds the tenant with `ScopedValue` and copies it to MDC.
+4. `TenantAwareDataSource` sets `app.tenant_id` on each connection at checkout.
+5. PostgreSQL RLS applies to every statement, including native SQL and find-by-ID.
+
+```java
+public final class TenantContext {
+  private static final ScopedValue<String> TENANT = ScopedValue.newInstance();
+
+  private TenantContext() {}
+
+  public static String require() {
+    if (!TENANT.isBound()) {
+      throw new IllegalStateException("No tenant bound to this scope");
+    }
+    return TENANT.get();
+  }
+
+  public static Optional<String> current() {
+    return TENANT.isBound() ? Optional.of(TENANT.get()) : Optional.empty();
+  }
+
+  public static <R, X extends Throwable> R callAs(String tenantId, ScopedValue.CallableOp<R, X> op) throws X {
+    return ScopedValue.where(TENANT, tenantId).call(op);
+  }
+}
+```
+
+`callAs` infers `Exception` as the thrown type when a lambda throws two checked exceptions, so the filter narrows it again:
+
+```java
+try {
+  TenantContext.callAs(tenantId, () -> { chain.doFilter(request, response); return null; });
+} catch (IOException | ServletException | RuntimeException e) {
+  throw e;
+} catch (Exception e) {
+  throw new ServletException(e);
+}
+```
+
+`TenantAwareDataSource` wraps Hikari and runs this at every checkout, passing an empty string when no tenant is bound:
+
+```sql
+SELECT set_config('app.tenant_id', ?, false);
+```
+
+The setting is overwritten at every checkout, so a pooled connection cannot carry an old tenant into a new request. An empty value matches no rows, so missing context fails closed.
+
+**Threads:** a scoped value does not cross into `@Async` or an ordinary executor. MDC and Spring's transaction state use `ThreadLocal` internally; that is acceptable, because neither is the source of tenant identity.
+
+## Reliable messaging
+
+- **Outbox:** the domain change and its outbox row commit together. One relay per service publishes in ID order, per `.claude/rules/messaging.md`.
+- **Ordering:** topics are keyed by `orderId`, and optimistic locking on the saga row serialises writes for one order.
+- **Inbox:** `processed_event` is inserted in the same transaction as the handler's changes, so a redelivered event does nothing.
+- **Redis:** caching and rate limits only. Losing Redis slows the system but cannot corrupt it.
+
+## Provider side effects
+
+The inbox cannot undo an HTTP call, so any provider write follows this pattern:
+
+1. **Intent:** in a transaction, save an intent row with a stable idempotency key and status `INTENT`. Commit.
+2. **Call:** outside any transaction, call the provider with the key.
+3. **Result:** in a new transaction, save `SUCCEEDED` or `FAILED`, and write the reply to the outbox.
+4. **Timeout or crash:** mark the intent `UNKNOWN`. A reconciler queries the provider and settles it. It never blindly retries a provider that lacks idempotency.
+
+Razorpay refunds support this through the `X-Refund-Idempotency` header. Confirm equivalent support for each new operation; where none exists, query before retrying.
+
+## Observability
+
+- JSON logs with `traceId`, `spanId`, `tenantId`, `orderId`
+- W3C `traceparent` carried through Kafka headers
+- Metrics: outbox backlog and age, consumer lag, saga state counts, missed deadlines, dead letters, provider latency and errors, late replies
+- Alerts: outbox age over 5 minutes, any dead letter, reconciler backlog, failed backup
+
+## Resource limits
+
+Virtual threads make waiting cheap but do not add database capacity. Each service has a bounded Hikari pool (start at 10), semaphores around provider calls, and per-tenant limits.

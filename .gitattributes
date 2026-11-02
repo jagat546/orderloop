@@ -1,0 +1,2 @@
+# Shell scripts must stay LF so bash runs them on every platform, including Git Bash.
+*.sh text eol=lf
