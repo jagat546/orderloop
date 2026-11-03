@@ -33,3 +33,6 @@ orderloop:
   outbox:
     schema: orchestrator
     ops-password: ${POSTGRES_OPS_PASSWORD:orderloop_ops_dev}
+  orchestrator:
+    # How often to look for missed deadlines; a deadline fires at most this late.
+    deadline-poll-interval: 5s

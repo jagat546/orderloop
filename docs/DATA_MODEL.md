@@ -46,11 +46,12 @@ Tables that `orderloop_ops` must scan get one more policy, on that table only:
 ```sql
 CREATE POLICY ops_scan ON orchestrator.saga_deadline
   TO orderloop_ops
-  USING (true)
-  WITH CHECK (true);
+  USING (true);
 
-GRANT SELECT, UPDATE ON orchestrator.saga_deadline TO orderloop_ops;
+GRANT SELECT ON orchestrator.saga_deadline TO orderloop_ops;
 ```
+
+Grant `orderloop_ops` only what its job needs. A scanner that reads due rows and then handles each one as `orderloop_app` in that row's tenant scope needs `SELECT` alone.
 
 `tenant_id` is an opaque text ID such as `t_01J...`, not the shop domain. It matches `t_[A-Za-z0-9]{1,64}`, which `TenantContext` enforces.
 
@@ -84,9 +85,9 @@ The gateway resolves a webhook's tenant by looking up `shop_domain` as `orderloo
 |---|---|
 | `order_saga` | As above, plus `state_data`: the engine's full `SagaState` as JSON. `state` repeats its name for queries |
 | `saga_step_log` | `tenant_id`, `order_id`, `seq`, `from_state`, `to_state`, `cause_event_id`, `early`, `at`; `seq` is the saga's `version` after the step |
-| `saga_deadline` | `tenant_id`, `order_id`, `kind`, `due_at`, `status` |
+| `saga_deadline` | `tenant_id`, `order_id`, `kind`, `due_at`; one row per saga, the deadline in force, removed when the saga has none. `orderloop_ops` may only read it, through `ops_scan` |
 | `exception_case` | `tenant_id`, `case_id`, `order_id`, `reason`, `amount_at_risk_minor`, `currency`, `status` (`OPEN` or `RESOLVED`), `opened_at`, `resolved_at`, `resolved_by`; at most one `OPEN` per order |
-| `leak_finding` | `tenant_id`, `detector`, `order_id`, `amount_at_risk_minor`, `recovered_minor`, `currency`, `is_estimate`, `status`; unique on the first three |
+| `leak_finding` | `tenant_id`, `detector`, `order_id`, `amount_at_risk_minor`, `recovered_minor`, `currency`, `is_estimate`, `status` (`OPEN` or `RESOLVED`), `detected_at`; unique on the first three |
 | `approval` | `tenant_id`, `approval_id`, `order_id`, `kind`, `amount_minor`, `currency`, `approved_by`, `approved_at` |
 | `tenant_settings` | `tenant_id`, `automation_mode`, deadline overrides |
 
