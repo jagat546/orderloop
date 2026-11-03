@@ -64,7 +64,8 @@ After a refund, `Refunding` leads to `Releasing` when stock is still held, to `C
 - Otherwise it updates the row with `version = version + 1 WHERE version = <version read>`, writes the `saga_step_log` row with `seq` equal to the new version, and appends each command to the outbox on its topic from `Topics.of`. The `cause_event_id` and the outbox rows' `x-causation-id` are the reply's event ID.
 - If another transaction moved the saga after it was read, the update matches no row and the whole transaction rolls back, inbox row included. The listener's error handler retries it, so the reply is decided again against the state that won. Two replies for one order therefore never both act on the same state.
 - Creating an order inserts `Received` and applies `OrderAccepted`. A repeat finds the row and emits nothing.
-- Not yet stored: deadlines (M1.13), exceptions for `NeedsAttention` (M1.10), and findings (M1.13). A transition with a finding is refused rather than lost.
+- Entering `NeedsAttention` opens an `exception_case` for the order value, with the attention reason. Leaving it resolves the case, recording the input that resumed the saga. At most one case is open per order. Opening a second, or leaving with no open case to resolve, means the two have drifted apart: the transition fails and rolls back, so the saga stays where it was and the reply is retried, then dead-lettered.
+- Not yet stored: deadlines (M1.13) and findings (M1.13). A transition with a finding is refused rather than lost.
 
 ## Steps
 

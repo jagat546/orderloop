@@ -85,7 +85,7 @@ The gateway resolves a webhook's tenant by looking up `shop_domain` as `orderloo
 | `order_saga` | As above, plus `state_data`: the engine's full `SagaState` as JSON. `state` repeats its name for queries |
 | `saga_step_log` | `tenant_id`, `order_id`, `seq`, `from_state`, `to_state`, `cause_event_id`, `early`, `at`; `seq` is the saga's `version` after the step |
 | `saga_deadline` | `tenant_id`, `order_id`, `kind`, `due_at`, `status` |
-| `exception_case` | `tenant_id`, `case_id`, `order_id`, `reason`, `amount_at_risk_minor`, `currency`, `status`, `resolved_by` |
+| `exception_case` | `tenant_id`, `case_id`, `order_id`, `reason`, `amount_at_risk_minor`, `currency`, `status` (`OPEN` or `RESOLVED`), `opened_at`, `resolved_at`, `resolved_by`; at most one `OPEN` per order |
 | `leak_finding` | `tenant_id`, `detector`, `order_id`, `amount_at_risk_minor`, `recovered_minor`, `currency`, `is_estimate`, `status`; unique on the first three |
 | `approval` | `tenant_id`, `approval_id`, `order_id`, `kind`, `amount_minor`, `currency`, `approved_by`, `approved_at` |
 | `tenant_settings` | `tenant_id`, `automation_mode`, deadline overrides |
@@ -94,7 +94,7 @@ The gateway resolves a webhook's tenant by looking up `shop_domain` as `orderloo
 
 | Table | Key columns |
 |---|---|
-| `inventory.allocation` | `tenant_id`, `order_id`, `sku`, `quantity`, `location_id`, `status` |
+| `inventory.allocation` | `tenant_id`, `order_id`, `sku`, `quantity`, `location_id`, `status`. Not created yet: the simulator keeps no state, so it arrives with the first real adapter |
 | `payment.payment_record` | `tenant_id`, `order_id`, `provider_payment_id`, `method`, `captured_minor`, `refunded_minor`, `currency`, `status` |
 | `payment.refund_intent` | `tenant_id`, `refund_id`, `order_id`, `amount_minor`, `currency`, `idempotency_key`, `provider_refund_id`, `status` |
 | `payment.settlement` | `tenant_id`, `order_id`, `expected_minor`, `settled_minor`, `currency`, `expected_at`, `settled_at` |

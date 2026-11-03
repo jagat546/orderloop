@@ -17,6 +17,8 @@ spring:
     user: orderloop_owner
     password: ${POSTGRES_OWNER_PASSWORD:orderloop_owner_dev}
     schemas: orchestrator
+    # Per service, so services can share a test classpath without running each other's migrations.
+    locations: classpath:db/migration/orchestrator
   jpa:
     open-in-view: false
     hibernate:

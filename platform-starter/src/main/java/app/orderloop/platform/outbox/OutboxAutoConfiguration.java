@@ -1,9 +1,12 @@
 package app.orderloop.platform.outbox;
 
+import app.orderloop.dto.Topics;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Stream;
+import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -14,7 +17,9 @@ import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.kafka.config.TopicBuilder;
 import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.kafka.core.KafkaTemplate;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -73,6 +78,20 @@ public class OutboxAutoConfiguration {
     producerFactory.createProducer(); // Validates the settings now, not on the first poll.
 
     return new OutboxRelay(new HikariDataSource(ops), producerFactory, properties);
+  }
+
+  /**
+   * Every topic and its dead-letter topic, since the broker never creates one on its own. Each
+   * service declares them all, so none depends on another starting first; existing topics are left
+   * as they are. shortcut: one replica for the single-server deployment (ADR 0005).
+   */
+  @Bean
+  KafkaAdmin.NewTopics orderloopTopics() {
+    return new KafkaAdmin.NewTopics(
+        Topics.ALL.stream()
+            .flatMap(topic -> Stream.of(topic, Topics.deadLetter(topic)))
+            .map(topic -> TopicBuilder.name(topic).partitions(3).replicas(1).build())
+            .toArray(NewTopic[]::new));
   }
 
   @Bean

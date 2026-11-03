@@ -11,7 +11,10 @@ import app.orderloop.dto.SagaEvent.InventoryFailedEvt;
 import app.orderloop.dto.SagaEvent.InventoryReservedEvt;
 import app.orderloop.dto.Topics;
 import app.orderloop.orchestrator.OrderOrchestratorApplication;
+import app.orderloop.orchestrator.saga.SagaInput;
 import app.orderloop.orchestrator.saga.SagaInput.Reply;
+import app.orderloop.orchestrator.saga.SagaInput.RetryStep;
+import app.orderloop.orchestrator.saga.SagaState.Allocating;
 import app.orderloop.platform.TestDatabase;
 import app.orderloop.platform.tenant.TenantContext;
 import jakarta.persistence.EntityManager;
@@ -49,6 +52,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.SpringBootTest.WebEnvironment;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -251,30 +255,196 @@ class OrderSagaIT {
   @Test
   void racingRepliesTakeOneTransitionAndEmitOneCommand() throws Exception {
     String order = created("t_alpha");
-    int racers = 8;
-    var start = new CyclicBarrier(racers);
-    List<Future<?>> racing = new ArrayList<>();
+    Runnable reply = () -> applyRetryingLikeTheInbox(order, reserved(order));
 
-    try (var threads = Executors.newFixedThreadPool(racers)) {
-      for (int i = 0; i < racers; i++) {
-        racing.add(
-            threads.submit(
-                () -> {
-                  start.await();
-                  // A scoped value does not reach a pool thread, so each one binds its tenant.
-                  runAs("t_alpha", () -> applyRetryingLikeTheInbox(order));
-                  return null;
-                }));
-      }
-      for (Future<?> racer : racing) {
-        racer.get(); // Rethrows any racer's failure.
-      }
-    }
+    race(reply, reply, reply, reply, reply, reply, reply, reply);
 
     assertThat(state("t_alpha", order)).isEqualTo("VerifyingPayment");
     assertThat(stepLog("t_alpha", order))
         .containsExactly("Received->Allocating", "Allocating->VerifyingPayment");
     assertThat(outboxTypes(order)).containsExactly("ReserveInventoryCmd", "ProcessPaymentCmd");
+  }
+
+  // --- Exceptions ---
+
+  @Test
+  void anInventoryFailureParksTheSagaAndOpensAnExceptionForTheOrderValue() throws Exception {
+    String order = created("t_alpha");
+
+    sendReply("t_alpha", UUID.randomUUID(), new InventoryFailedEvt(order, "OUT_OF_STOCK"));
+
+    await().atMost(Duration.ofSeconds(30)).until(() -> !exceptions("t_alpha", order).isEmpty());
+    assertThat(state("t_alpha", order)).isEqualTo("NeedsAttention");
+    assertThat(exceptions("t_alpha", order)).containsExactly("OPEN|INVENTORY_FAILED|1000|EUR|null");
+  }
+
+  @Test
+  void aRepeatedFailureOpensOneException() {
+    String order = created("t_alpha");
+
+    runAs(
+        "t_alpha", () -> inTransaction(() -> sagas.apply(order, failed(order), UUID.randomUUID())));
+    runAs(
+        "t_alpha", () -> inTransaction(() -> sagas.apply(order, failed(order), UUID.randomUUID())));
+
+    assertThat(exceptions("t_alpha", order)).containsExactly("OPEN|INVENTORY_FAILED|1000|EUR|null");
+  }
+
+  @Test
+  void aLateReservationResumesTheSagaAndResolvesTheException() {
+    String order = created("t_alpha");
+    runAs(
+        "t_alpha", () -> inTransaction(() -> sagas.apply(order, failed(order), UUID.randomUUID())));
+
+    runAs(
+        "t_alpha",
+        () -> inTransaction(() -> sagas.apply(order, reserved(order), UUID.randomUUID())));
+
+    assertThat(state("t_alpha", order)).isEqualTo("VerifyingPayment");
+    assertThat(exceptions("t_alpha", order))
+        .containsExactly("RESOLVED|INVENTORY_FAILED|1000|EUR|InventoryReservedEvt");
+    assertThat(outboxTypes(order)).containsExactly("ReserveInventoryCmd", "ProcessPaymentCmd");
+  }
+
+  @Test
+  void racingFailedAndReservedRepliesLeaveTheExceptionInStepWithTheSaga() throws Exception {
+    // Either reply may commit first; the loser is retried against the state that won. Several
+    // rounds, so both orders are likely to occur.
+    for (int round = 0; round < 6; round++) {
+      String order = created("t_alpha");
+
+      race(
+          () -> applyRetryingLikeTheInbox(order, failed(order)),
+          () -> applyRetryingLikeTheInbox(order, reserved(order)));
+
+      // Failed first parks the saga and the reservation resumes it, resolving the exception.
+      // Reserved first makes the failure late, so it is ignored and opens nothing.
+      assertThat(state("t_alpha", order)).isEqualTo("VerifyingPayment");
+      assertThat(exceptions("t_alpha", order))
+          .isSubsetOf("RESOLVED|INVENTORY_FAILED|1000|EUR|InventoryReservedEvt")
+          .doesNotHaveDuplicates();
+      assertThat(outboxTypes(order)).containsExactly("ReserveInventoryCmd", "ProcessPaymentCmd");
+    }
+  }
+
+  @Test
+  void anOperatorRetryResolvesTheExceptionAndASecondFailureOpensANewOne() {
+    String order = created("t_alpha");
+    runAs(
+        "t_alpha", () -> inTransaction(() -> sagas.apply(order, failed(order), UUID.randomUUID())));
+
+    runAs("t_alpha", () -> inTransaction(() -> sagas.apply(order, new RetryStep(), null)));
+
+    assertThat(state("t_alpha", order)).isEqualTo("Allocating");
+    assertThat(exceptions("t_alpha", order))
+        .containsExactly("RESOLVED|INVENTORY_FAILED|1000|EUR|RetryStep");
+    assertThat(outboxTypes(order)).containsExactly("ReserveInventoryCmd", "ReserveInventoryCmd");
+
+    runAs(
+        "t_alpha", () -> inTransaction(() -> sagas.apply(order, failed(order), UUID.randomUUID())));
+
+    assertThat(state("t_alpha", order)).isEqualTo("NeedsAttention");
+    assertThat(exceptions("t_alpha", order))
+        .containsExactly(
+            "RESOLVED|INVENTORY_FAILED|1000|EUR|RetryStep", "OPEN|INVENTORY_FAILED|1000|EUR|null");
+  }
+
+  @Test
+  void aFailureDeliveredTwiceOpensOneException() throws Exception {
+    String order = created("t_alpha");
+    UUID failure = UUID.randomUUID();
+
+    sendReply("t_alpha", failure, new InventoryFailedEvt(order, "OUT_OF_STOCK"));
+    sendReply("t_alpha", failure, new InventoryFailedEvt(order, "OUT_OF_STOCK"));
+    // A later event on the same order and partition: once it is handled, both copies were seen.
+    UUID marker = UUID.randomUUID();
+    sendReply("t_alpha", marker, new InventoryFailedEvt(order, "OUT_OF_STOCK"));
+
+    await().atMost(Duration.ofSeconds(30)).until(() -> processed("t_alpha", marker));
+    assertThat(stepLog("t_alpha", order))
+        .containsExactly("Received->Allocating", "Allocating->NeedsAttention");
+    assertThat(exceptions("t_alpha", order)).containsExactly("OPEN|INVENTORY_FAILED|1000|EUR|null");
+  }
+
+  @Test
+  void leavingNeedsAttentionWithNoOpenExceptionFailsLoudly() {
+    String order = created("t_alpha");
+    runAs(
+        "t_alpha", () -> inTransaction(() -> sagas.apply(order, failed(order), UUID.randomUUID())));
+    // Drift: the open exception is gone, as for a saga parked before exceptions were stored.
+    runAs(
+        "t_alpha",
+        () ->
+            jdbc.update(
+                "UPDATE orchestrator.exception_case SET status = 'RESOLVED' WHERE order_id = ?",
+                order));
+
+    assertThatThrownBy(
+            () ->
+                runAs(
+                    "t_alpha",
+                    () ->
+                        inTransaction(
+                            () -> sagas.apply(order, reserved(order), UUID.randomUUID()))))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("open exception");
+
+    assertThat(state("t_alpha", order)).isEqualTo("NeedsAttention");
+    assertThat(outboxTypes(order)).containsExactly("ReserveInventoryCmd");
+  }
+
+  @Test
+  void parkingASagaThatAlreadyHasAnOpenExceptionFailsLoudly() {
+    String order = created("t_alpha");
+    runAs(
+        "t_alpha", () -> inTransaction(() -> sagas.apply(order, failed(order), UUID.randomUUID())));
+    // Drift: the saga row is back in Allocating while its exception is still open.
+    runAs(
+        "t_alpha",
+        () ->
+            jdbc.update(
+                "UPDATE orchestrator.order_saga SET state = 'Allocating', state_data = ?"
+                    + " WHERE order_id = ?",
+                SagaStateJson.write(new Allocating(order)),
+                order));
+
+    assertThatThrownBy(
+            () ->
+                runAs(
+                    "t_alpha",
+                    () ->
+                        inTransaction(() -> sagas.apply(order, failed(order), UUID.randomUUID()))))
+        .isInstanceOf(DataIntegrityViolationException.class);
+
+    assertThat(state("t_alpha", order)).isEqualTo("Allocating");
+    assertThat(exceptions("t_alpha", order)).containsExactly("OPEN|INVENTORY_FAILED|1000|EUR|null");
+  }
+
+  @Test
+  void anotherTenantCannotReadOrResolveTheException() {
+    String order = created("t_alpha");
+    runAs(
+        "t_alpha", () -> inTransaction(() -> sagas.apply(order, failed(order), UUID.randomUUID())));
+
+    int seen =
+        as(
+            "t_beta",
+            () ->
+                jdbc.queryForObject(
+                    "SELECT count(*) FROM orchestrator.exception_case WHERE order_id = ?",
+                    Integer.class,
+                    order));
+    int resolved =
+        as(
+            "t_beta",
+            () ->
+                jdbc.update(
+                    "UPDATE orchestrator.exception_case SET status = 'RESOLVED' WHERE order_id = ?",
+                    order));
+
+    assertThat(seen).isZero();
+    assertThat(resolved).isZero();
+    assertThat(exceptions("t_alpha", order)).containsExactly("OPEN|INVENTORY_FAILED|1000|EUR|null");
   }
 
   // --- Tenant isolation ---
@@ -392,11 +562,32 @@ class OrderSagaIT {
 
   // --- Helpers ---
 
+  /** Starts every racer at once as tenant t_alpha, and rethrows any racer's failure. */
+  private void race(Runnable... racers) throws Exception {
+    var start = new CyclicBarrier(racers.length);
+    List<Future<?>> racing = new ArrayList<>();
+    try (var threads = Executors.newFixedThreadPool(racers.length)) {
+      for (Runnable racer : racers) {
+        racing.add(
+            threads.submit(
+                () -> {
+                  start.await();
+                  // A scoped value does not reach a pool thread, so each one binds its tenant.
+                  runAs("t_alpha", racer);
+                  return null;
+                }));
+      }
+      for (Future<?> racer : racing) {
+        racer.get();
+      }
+    }
+  }
+
   /** Retries an optimistic lock conflict the way the inbox's error handler does. */
-  private void applyRetryingLikeTheInbox(String order) {
+  private void applyRetryingLikeTheInbox(String order, SagaInput input) {
     for (int attempt = 1; ; attempt++) {
       try {
-        inTransaction(() -> sagas.apply(order, reserved(order), UUID.randomUUID()));
+        inTransaction(() -> sagas.apply(order, input, UUID.randomUUID()));
         return;
       } catch (OptimisticLockingFailureException e) {
         if (attempt == 20) {
@@ -458,6 +649,19 @@ class OrderSagaIT {
                 order));
   }
 
+  /** Each exception as status|reason|amountMinor|currency|resolvedBy, oldest first. */
+  private List<String> exceptions(String tenant, String order) {
+    return as(
+        tenant,
+        () ->
+            jdbc.queryForList(
+                "SELECT status || '|' || reason || '|' || amount_at_risk_minor || '|' || currency"
+                    + " || '|' || coalesce(resolved_by, 'null')"
+                    + " FROM orchestrator.exception_case WHERE order_id = ? ORDER BY opened_at",
+                String.class,
+                order));
+  }
+
   private boolean processed(String tenant, UUID eventId) {
     return as(
         tenant,
@@ -483,7 +687,8 @@ class OrderSagaIT {
   }
 
   private static OrderSaga find(SessionFactory sessions, String sessionTenant, String order) {
-    try (Session session = sessions.withOptions().tenantIdentifier(sessionTenant).openSession()) {
+    try (Session session =
+        sessions.withOptions().tenantIdentifier((Object) sessionTenant).openSession()) {
       return session.find(OrderSaga.class, order);
     }
   }

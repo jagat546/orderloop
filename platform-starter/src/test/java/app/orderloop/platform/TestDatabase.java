@@ -31,12 +31,18 @@ public final class TestDatabase {
   }
 
   public static void register(DynamicPropertyRegistry registry, PostgreSQLContainer postgres) {
+    register(registry, postgres, "orchestrator");
+  }
+
+  /** As {@link #register(DynamicPropertyRegistry, PostgreSQLContainer)}, for a service's schema. */
+  public static void register(
+      DynamicPropertyRegistry registry, PostgreSQLContainer postgres, String schema) {
     registry.add("spring.datasource.url", postgres::getJdbcUrl);
     registry.add("spring.datasource.username", () -> "orderloop_app");
     registry.add("spring.datasource.password", () -> APP_PASSWORD);
     registry.add("spring.flyway.user", () -> "orderloop_owner");
     registry.add("spring.flyway.password", () -> OWNER_PASSWORD);
-    registry.add("spring.flyway.schemas", () -> "orchestrator");
+    registry.add("spring.flyway.schemas", () -> schema);
     registry.add("spring.jpa.open-in-view", () -> "false");
   }
 }

@@ -74,6 +74,13 @@
       <type>test-jar</type>
       <scope>test</scope>
     </dependency>
+    <!-- End-to-end tests run the real downstream services beside the orchestrator. -->
+    <dependency>
+      <groupId>app.orderloop</groupId>
+      <artifactId>inventory-service</artifactId>
+      <version>${project.version}</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.testcontainers</groupId>
       <artifactId>testcontainers-postgresql</artifactId>

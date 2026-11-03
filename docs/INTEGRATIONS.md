@@ -61,6 +61,12 @@ public interface FulfilmentProvider {
   ShipmentStatus lookup(String tenantId, String orderId);
   BookingResult book(String tenantId, BookingRequest request); // Carries the idempotency key; blocked in observe mode
 }
+
+public interface InventoryProvider { // inventory-service, built in M1.10
+  Reservation reserve(String tenantId, String orderId); // Reserved, or Failed(reason code)
+}
 ```
+
+The inventory simulator holds stock for every order except one whose ID ends in `-out-of-stock`, which fails with `OUT_OF_STOCK`, the way a test card number chooses a failure. It keeps no state and does no I/O, so it runs inside the inbox transaction; a real adapter must follow the provider side-effect pattern in `docs/ARCHITECTURE.md`.
 
 Each port has a simulator and, where planned, production adapters. The simulator is selected unless configuration names another adapter. It can succeed, fail, time out after succeeding, and send duplicate or out-of-order webhooks, and it supports any ISO 4217 currency.

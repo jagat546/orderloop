@@ -9,6 +9,7 @@ import app.orderloop.orchestrator.saga.SagaInput;
 import app.orderloop.orchestrator.saga.SagaInput.OrderAccepted;
 import app.orderloop.orchestrator.saga.SagaInput.Reply;
 import app.orderloop.orchestrator.saga.SagaState;
+import app.orderloop.orchestrator.saga.SagaState.NeedsAttention;
 import app.orderloop.orchestrator.saga.SagaState.Received;
 import app.orderloop.orchestrator.saga.Transition;
 import app.orderloop.platform.outbox.OutboxWriter;
@@ -49,6 +50,15 @@ public class SagaService {
       "INSERT INTO orchestrator.saga_step_log"
           + " (tenant_id, order_id, seq, from_state, to_state, cause_event_id, early, at)"
           + " VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+  // The partial unique index allows one open exception per order. A second one is drift, so it
+  // fails and rolls the transition back rather than vanishing.
+  private static final String OPEN_EXCEPTION =
+      "INSERT INTO orchestrator.exception_case (tenant_id, case_id, order_id, reason,"
+          + " amount_at_risk_minor, currency, status, opened_at)"
+          + " VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?)";
+  private static final String RESOLVE_EXCEPTION =
+      "UPDATE orchestrator.exception_case SET status = 'RESOLVED', resolved_at = ?,"
+          + " resolved_by = ? WHERE order_id = ? AND status = 'OPEN'";
 
   private final OrderSagaRepository sagas;
   private final JdbcTemplate jdbc;
@@ -110,7 +120,8 @@ public class SagaService {
     String tenant = TenantContext.require();
     OrderSaga saga = sagas.findById(orderId).orElseThrow(() -> new UnknownOrderException(orderId));
     Instant now = clock.instant();
-    Transition transition = SagaEngine.decide(SagaStateJson.read(saga.stateData()), input, now);
+    SagaState current = SagaStateJson.read(saga.stateData());
+    Transition transition = SagaEngine.decide(current, input, now);
 
     if (transition.ignored()) {
       meters
@@ -148,8 +159,30 @@ public class SagaService {
       outbox.append(
           Topics.of(command), new Envelope(UUID.randomUUID(), tenant, causeEventId, command));
     }
-    // shortcut: transition.deadline() is not stored until M1.13 adds saga_deadline. Exceptions for
-    // NeedsAttention are opened from M1.10. The saga row still shows the state.
+    // An exception is open exactly while the saga is parked.
+    if (next instanceof NeedsAttention parked && !(current instanceof NeedsAttention)) {
+      Money atRisk = saga.total(); // The order value, as for a stuck order (docs/PRODUCT.md).
+      jdbc.update(
+          OPEN_EXCEPTION,
+          tenant,
+          UUID.randomUUID(),
+          orderId,
+          parked.reason().name(),
+          atRisk.amountMinor(),
+          atRisk.currency(),
+          Timestamp.from(now));
+      log.warn("Order {} needs attention: {}", orderId, parked.reason());
+    } else if (current instanceof NeedsAttention && !(next instanceof NeedsAttention)) {
+      int resolved = jdbc.update(RESOLVE_EXCEPTION, Timestamp.from(now), nameOf(input), orderId);
+      if (resolved != 1) {
+        // Rolls the transition back: the saga stays parked, and the failure is retried, then
+        // dead-lettered, where someone sees it.
+        throw new IllegalStateException(
+            "Order " + orderId + " left NeedsAttention with " + resolved + " open exception(s)");
+      }
+    }
+    // shortcut: transition.deadline() is not stored until M1.13 adds saga_deadline. The saga row
+    // still shows the state.
     log.info("Order {} moved from {} to {}", orderId, saga.state(), to);
   }
 
