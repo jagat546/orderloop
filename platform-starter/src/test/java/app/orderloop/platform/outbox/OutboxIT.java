@@ -10,6 +10,8 @@ import app.orderloop.dto.SagaCommand.ReserveInventoryCmd;
 import app.orderloop.dto.SagaEvent.InventoryFailedEvt;
 import app.orderloop.platform.TestDatabase;
 import app.orderloop.platform.tenant.TenantContext;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.time.Duration;
@@ -86,6 +88,7 @@ class OutboxIT {
   @Autowired private OutboxRelay relay;
   @Autowired private TransactionTemplate tx;
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private Tracer tracer;
 
   @Test
   void aRollbackPublishesNothing() {
@@ -245,6 +248,32 @@ class OutboxIT {
                               return null;
                             })))
         .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void anEventAppendedInsideASpanCarriesItsTraceToKafka() {
+    Envelope event = envelope("t_a", "o-traced");
+    Span span = tracer.nextSpan().name("create order").start();
+    try (Tracer.SpanInScope inScope = tracer.withSpan(span)) {
+      commit(event);
+    } finally {
+      span.end();
+    }
+
+    drainRelay();
+
+    assertThat(header(recordOnTopic(event.eventId()), "traceparent"))
+        .matches("00-" + span.context().traceId() + "-" + span.context().spanId() + "-[0-9a-f]{2}");
+  }
+
+  @Test
+  void anEventAppendedOutsideAnySpanCarriesNoTrace() {
+    Envelope event = envelope("t_a", "o-untraced");
+    commit(event);
+
+    drainRelay();
+
+    assertThat(recordOnTopic(event.eventId()).headers().lastHeader("traceparent")).isNull();
   }
 
   private void commit(Envelope envelope) {

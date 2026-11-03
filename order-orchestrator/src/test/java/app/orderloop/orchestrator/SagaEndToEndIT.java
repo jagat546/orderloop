@@ -1,10 +1,12 @@
 package app.orderloop.orchestrator;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
 import app.orderloop.dto.Money;
 import app.orderloop.dto.PaymentMethod;
+import app.orderloop.dto.Topics;
 import app.orderloop.fulfilment.FulfilmentServiceApplication;
 import app.orderloop.fulfilment.provider.SimulatedCarrier;
 import app.orderloop.inventory.InventoryServiceApplication;
@@ -18,14 +20,25 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Stream;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.header.Header;
+import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.junit.jupiter.Container;
@@ -40,6 +53,7 @@ import tools.jackson.databind.json.JsonMapper;
  * Kafka. All connect as orderloop_app.
  */
 @Testcontainers
+@ExtendWith(OutputCaptureExtension.class)
 class SagaEndToEndIT {
 
   private static final String KEY = "alpha-dev-key-0123456789";
@@ -209,6 +223,78 @@ class SagaEndToEndIT {
 
     await().atMost(Duration.ofSeconds(60)).until(() -> "NeedsAttention".equals(state(order)));
     assertThat(exceptions(order)).containsExactly("OPEN|INVENTORY_FAILED|1234|KWD");
+  }
+
+  @Test
+  void oneTraceFollowsAnOrderAcrossEveryService(CapturedOutput output) {
+    String order = "o-" + UUID.randomUUID();
+    String traceId = UUID.randomUUID().toString().replace("-", "");
+    payments().record("t_alpha", order, PaymentMethod.PREPAID, true, new Money(1234, "KWD"));
+
+    int status =
+        send(HttpRequest.newBuilder(uri("/api/v1/orders"))
+                .header("Content-Type", "application/json")
+                .header("traceparent", "00-" + traceId + "-00f067aa0ba902b7-01")
+                .POST(
+                    HttpRequest.BodyPublishers.ofString(
+                        "{\"orderId\":\"%s\",\"total\":{\"amountMinor\":1234,\"currency\":\"KWD\"}}"
+                            .formatted(order))))
+            .statusCode();
+    assertThat(status).isEqualTo(201);
+    awaitState(order, "InTransit");
+
+    // Every message about the order, from the orchestrator and from each service's reply.
+    Map<String, List<String>> traceparents = traceparentsByTopic(order, Topics.ALL.size());
+    assertThat(traceparents).containsOnlyKeys(Topics.ALL);
+    List<String> all = traceparents.values().stream().flatMap(List::stream).toList();
+    assertThat(all)
+        .allSatisfy(
+            header -> assertThat(header).matches("00-" + traceId + "-[0-9a-f]{16}-[0-9a-f]{2}"));
+    // Each hop continued the trace in a span of its own, so the parent span IDs differ.
+    assertThat(all.stream().map(header -> header.substring(36, 52)).distinct().count())
+        .isGreaterThan(1);
+    // JSON logs carry the trace, the tenant and the order for a reply the orchestrator handled.
+    assertThat(output.getOut().lines())
+        .anySatisfy(
+            line ->
+                assertThat(line)
+                    .startsWith("{")
+                    .contains("\"traceId\":\"" + traceId + "\"")
+                    .contains("\"tenantId\":\"t_alpha\"")
+                    .contains("\"orderId\":\"" + order + "\""));
+  }
+
+  /** Reads each topic from the start and collects the traceparent of every record for the order. */
+  private static Map<String, List<String>> traceparentsByTopic(String order, int topics) {
+    Map<String, Object> config =
+        Map.of(
+            ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG,
+            KAFKA.getBootstrapServers(),
+            ConsumerConfig.GROUP_ID_CONFIG,
+            "trace-test-" + UUID.randomUUID(),
+            ConsumerConfig.AUTO_OFFSET_RESET_CONFIG,
+            "earliest");
+    Map<String, List<String>> found = new HashMap<>();
+    try (var consumer =
+        new KafkaConsumer<>(config, new StringDeserializer(), new StringDeserializer())) {
+      consumer.subscribe(Topics.ALL);
+      await()
+          .atMost(Duration.ofSeconds(60))
+          .until(
+              () -> {
+                for (ConsumerRecord<String, String> record :
+                    consumer.poll(Duration.ofMillis(500))) {
+                  if (order.equals(record.key())) {
+                    Header header = record.headers().lastHeader("traceparent");
+                    found
+                        .computeIfAbsent(record.topic(), t -> new ArrayList<>())
+                        .add(header == null ? "none" : new String(header.value(), UTF_8));
+                  }
+                }
+                return found.size() == topics;
+              });
+    }
+    return found;
   }
 
   private static String[] args(String schema, String... more) {

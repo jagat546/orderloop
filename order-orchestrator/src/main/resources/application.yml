@@ -36,3 +36,20 @@ orderloop:
   orchestrator:
     # How often to look for missed deadlines; a deadline fires at most this late.
     deadline-poll-interval: 5s
+
+# JSON logs with traceId, spanId, tenantId and orderId from MDC (docs/ARCHITECTURE.md).
+logging:
+  structured:
+    format:
+      console: logstash
+
+management:
+  otlp:
+    metrics:
+      export:
+        # Off until M1.14b adds a collector; spans export once an OTLP endpoint is set.
+        enabled: false
+  tracing:
+    sampling:
+      # Every order is traced; lower it if trace volume ever matters.
+      probability: 1.0

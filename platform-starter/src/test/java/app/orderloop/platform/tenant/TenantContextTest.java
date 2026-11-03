@@ -13,8 +13,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.MDC;
 
 class TenantContextTest {
+  @Test
+  void logsInsideAScopeCarryACopyOfTheTenantAndLogsAfterItDoNot() {
+    String inside = TenantContext.callAs("t_a", () -> MDC.get(TenantContext.MDC_KEY));
+    assertThat(inside).isEqualTo("t_a");
+    assertThat(MDC.get(TenantContext.MDC_KEY)).isNull();
+  }
 
   @Test
   void requireThrowsWhenNoTenantIsBound() {

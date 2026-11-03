@@ -33,6 +33,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -110,6 +111,20 @@ class InboxIT {
     await().atMost(Duration.ofSeconds(30)).until(() -> saga.calls(markerId) > 0);
     assertThat(saga.calls(eventId)).isEqualTo(1);
     assertThat(stateRows("t_a", order)).isEqualTo(2); // the event once, plus the marker
+  }
+
+  @Test
+  void theHandlerRunsInTheProducersTraceWithTenantAndOrderInItsLogs() {
+    String order = "o-traced-" + UUID.randomUUID();
+    UUID eventId = UUID.randomUUID();
+    String traceId = UUID.randomUUID().toString().replace("-", "");
+    ProducerRecord<String, String> traced = reserve("t_a", eventId, order);
+    traced.headers().add("traceparent", ("00-" + traceId + "-00f067aa0ba902b7-01").getBytes(UTF_8));
+
+    send(traced);
+
+    await().atMost(Duration.ofSeconds(30)).until(() -> saga.calls(eventId) > 0);
+    assertThat(saga.logContext(eventId)).isEqualTo(traceId + "|t_a|" + order);
   }
 
   @Test
@@ -360,6 +375,12 @@ class InboxIT {
   /** A listener as services will write them: the sealed type in, a pattern match out. */
   static class SagaHandler extends CountingHandler {
 
+    private final Map<UUID, String> logContext = new ConcurrentHashMap<>();
+
+    String logContext(UUID eventId) {
+      return logContext.get(eventId);
+    }
+
     private final InboxConsumer inbox;
     private final JdbcTemplate jdbc;
 
@@ -375,6 +396,10 @@ class InboxIT {
 
     private void handle(ConsumerRecord<String, String> record, SagaCommand command) {
       count(record);
+      // What a log line written here would carry.
+      logContext.put(
+          UUID.fromString(new String(record.headers().lastHeader("x-event-id").value(), UTF_8)),
+          MDC.get("traceId") + "|" + MDC.get("tenantId") + "|" + MDC.get("orderId"));
       String label =
           command instanceof ReleaseInventoryCmd
               ? "released " + command.orderId()

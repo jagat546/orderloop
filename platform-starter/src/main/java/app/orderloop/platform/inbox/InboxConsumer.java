@@ -6,6 +6,9 @@ import app.orderloop.dto.Headers;
 import app.orderloop.dto.Message;
 import app.orderloop.dto.MessageTypes;
 import app.orderloop.platform.tenant.TenantContext;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import java.util.UUID;
 import java.util.function.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -34,6 +37,9 @@ public final class InboxConsumer {
 
   private static final Logger log = LoggerFactory.getLogger(InboxConsumer.class);
 
+  /** The order a handler works on, copied to MDC for logs; the Kafka key is the order ID too. */
+  static final String ORDER_ID = "orderId";
+
   /**
    * Ignores unknown fields, so a producer may add an optional field before consumers know it. Never
    * bends a number: 12.9, "500" or 1e3 for an integer is refused, not truncated or converted, so a
@@ -54,8 +60,17 @@ public final class InboxConsumer {
   private final JdbcTemplate jdbc;
   private final TransactionTemplate tx;
   private final String insert;
+  private final Tracer tracer;
+  private final Propagator propagator;
 
-  InboxConsumer(JdbcTemplate jdbc, TransactionTemplate tx, String schema) {
+  InboxConsumer(
+      JdbcTemplate jdbc,
+      TransactionTemplate tx,
+      String schema,
+      Tracer tracer,
+      Propagator propagator) {
+    this.tracer = tracer;
+    this.propagator = propagator;
     this.jdbc = jdbc;
     this.tx = tx;
     this.insert =
@@ -90,8 +105,15 @@ public final class InboxConsumer {
     UUID eventId = eventId(record);
     T message = read(record, type);
 
-    MDC.put("tenantId", tenant);
-    try {
+    // Continues the producer's trace, so one trace follows an order across services.
+    Span span =
+        propagator
+            .extract(record, InboxConsumer::header)
+            .name("handle " + header(record, Headers.EVENT_TYPE))
+            .kind(Span.Kind.CONSUMER)
+            .start();
+    MDC.put(ORDER_ID, message.orderId());
+    try (Tracer.SpanInScope inScope = tracer.withSpan(span)) {
       TenantContext.callAs(
           tenant,
           () ->
@@ -104,8 +126,12 @@ public final class InboxConsumer {
                     handler.accept(message);
                     return null;
                   }));
+    } catch (RuntimeException e) {
+      span.error(e);
+      throw e;
     } finally {
-      MDC.remove("tenantId");
+      span.end();
+      MDC.remove(ORDER_ID);
     }
   }
 

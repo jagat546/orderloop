@@ -7,7 +7,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -15,12 +14,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 /**
  * Runs after authorization. Takes the tenant from the authenticated principal, rejects a mismatched
  * {@code X-Tenant-ID} with 403 (invariant 1), then runs the rest of the request inside {@link
- * TenantContext} with a copy of the tenant in MDC for logs.
+ * TenantContext}, which copies the tenant to MDC for logs.
  */
 final class TenantBindingFilter extends OncePerRequestFilter {
 
   static final String TENANT_HEADER = "X-Tenant-ID";
-  static final String MDC_KEY = "tenantId";
 
   private static final Logger log = LoggerFactory.getLogger(TenantBindingFilter.class);
 
@@ -47,7 +45,6 @@ final class TenantBindingFilter extends OncePerRequestFilter {
       return;
     }
 
-    MDC.put(MDC_KEY, tenantId);
     try {
       TenantContext.callAs(
           tenantId,
@@ -59,8 +56,6 @@ final class TenantBindingFilter extends OncePerRequestFilter {
       throw e;
     } catch (Exception e) {
       throw new ServletException(e);
-    } finally {
-      MDC.remove(MDC_KEY);
     }
   }
 }

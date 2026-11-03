@@ -115,8 +115,8 @@ Razorpay refunds support this through the `X-Refund-Idempotency` header. Confirm
 
 ## Observability
 
-- JSON logs with `traceId`, `spanId`, `tenantId`, `orderId`
-- W3C `traceparent` carried through Kafka headers
+- JSON logs with `traceId`, `spanId`, `tenantId`, `orderId` (Spring Boot structured logging, `logstash` format). `TenantContext.callAs` copies the tenant to MDC; `InboxConsumer` copies the order ID.
+- W3C `traceparent` carried through Kafka headers. Tracing is Micrometer Tracing over OpenTelemetry, from `platform-starter`. A trace starts at the order API, or continues one the caller sent. `OutboxWriter` stores the current span's `traceparent` with the row, and only that header, never baggage, so the relay sends it however late. `InboxConsumer` continues it in a consumer span around the handler, so the handler's own outbox rows carry the same trace. Simulator reports and scheduled scans start traces of their own. Every order is sampled. Spans export once `management.opentelemetry.tracing.export.otlp.endpoint` is set (M1.14b).
 - Metrics: outbox backlog and age, consumer lag, saga state counts, missed deadlines, dead letters, provider latency and errors, late replies
 - Alerts: outbox age over 5 minutes, any dead letter, reconciler backlog, failed backup
 

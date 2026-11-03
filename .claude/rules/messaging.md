@@ -42,7 +42,7 @@ Pass the sealed parent when a topic carries several types. The concrete type com
 `InboxConsumer` does this, in order:
 
 1. Reads `x-tenant-id`, `x-event-id` and `x-event-type`, and throws `InvalidMessageException` (dead-lettered at once) if one is missing or malformed, the type is not a subtype of the one given, or the payload is unreadable or has no `orderId`. Integers must be JSON integers: `12.9`, `"500"` and `1e3` are refused, never truncated. Unknown fields are ignored. Today only the tenant ID's format is checked; rejecting a well-formed but unknown tenant needs the tenant table (M2.2).
-2. Binds `TenantContext` and copies the tenant to MDC.
+2. Continues the record's `traceparent` in a consumer span, copies the order ID to MDC, and binds `TenantContext`, which copies the tenant to MDC. Outbox rows the handler appends carry the same trace.
 3. Opens a transaction and inserts into `processed_event`. On conflict it commits and returns.
 4. Runs the handler in that same transaction, and commits.
 

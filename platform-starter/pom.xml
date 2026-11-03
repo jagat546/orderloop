@@ -53,6 +53,11 @@
       <artifactId>spring-boot-starter-jackson</artifactId>
       <optional>true</optional>
     </dependency>
+    <!-- Every service traces: W3C trace context in, through the outbox and Kafka, and out. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-opentelemetry</artifactId>
+    </dependency>
 
     <dependency>
       <groupId>org.springframework.boot</groupId>

@@ -2,6 +2,7 @@ package app.orderloop.platform.tenant;
 
 import java.util.Optional;
 import java.util.regex.Pattern;
+import org.slf4j.MDC;
 
 /**
  * The verified tenant for the current scope (invariant 3). Bound only from a verified credential,
@@ -10,6 +11,9 @@ import java.util.regex.Pattern;
  * another tenant; finish one tenant's work before starting the next.
  */
 public final class TenantContext {
+
+  /** The MDC key that carries a copy of the tenant into every log line written inside a scope. */
+  public static final String MDC_KEY = "tenantId";
 
   private static final ScopedValue<String> TENANT = ScopedValue.newInstance();
   // Opaque IDs such as t_01J...; never a shop domain. Rejects stray spaces and look-alikes.
@@ -42,6 +46,22 @@ public final class TenantContext {
     if (TENANT.isBound() && !TENANT.get().equals(tenantId)) {
       throw new IllegalStateException("Cannot switch tenant inside another tenant's scope");
     }
-    return ScopedValue.where(TENANT, tenantId).call(op);
+    return ScopedValue.where(TENANT, tenantId).call(() -> withTenantInLogs(tenantId, op));
+  }
+
+  /** MDC holds a copy for logs only; the scoped value stays the source of truth (invariant 3). */
+  private static <R, X extends Throwable> R withTenantInLogs(
+      String tenantId, ScopedValue.CallableOp<R, X> op) throws X {
+    String outer = MDC.get(MDC_KEY);
+    MDC.put(MDC_KEY, tenantId);
+    try {
+      return op.call();
+    } finally {
+      if (outer == null) {
+        MDC.remove(MDC_KEY);
+      } else {
+        MDC.put(MDC_KEY, outer);
+      }
+    }
   }
 }

@@ -3,12 +3,15 @@ package app.orderloop.platform.outbox;
 import app.orderloop.dto.Topics;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Stream;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -46,8 +49,16 @@ import tools.jackson.databind.json.JsonMapper;
 public class OutboxAutoConfiguration {
 
   @Bean
-  OutboxWriter outboxWriter(JdbcTemplate jdbc, OutboxProperties properties) {
-    return new OutboxWriter(jdbc, properties.schema());
+  OutboxWriter outboxWriter(
+      JdbcTemplate jdbc,
+      OutboxProperties properties,
+      ObjectProvider<Tracer> tracer,
+      ObjectProvider<Propagator> propagator) {
+    return new OutboxWriter(
+        jdbc,
+        properties.schema(),
+        tracer.getIfAvailable(() -> Tracer.NOOP),
+        propagator.getIfAvailable(() -> Propagator.NOOP));
   }
 
   @Bean(destroyMethod = "close")

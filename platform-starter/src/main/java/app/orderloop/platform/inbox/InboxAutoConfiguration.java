@@ -3,6 +3,9 @@ package app.orderloop.platform.inbox;
 import app.orderloop.platform.outbox.OutboxAutoConfiguration;
 import app.orderloop.platform.outbox.OutboxProperties;
 import app.orderloop.platform.outbox.OutboxRelay;
+import io.micrometer.tracing.Tracer;
+import io.micrometer.tracing.propagation.Propagator;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -26,8 +29,18 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class InboxAutoConfiguration {
 
   @Bean
-  InboxConsumer inboxConsumer(JdbcTemplate jdbc, TransactionTemplate tx, OutboxProperties outbox) {
-    return new InboxConsumer(jdbc, tx, outbox.schema());
+  InboxConsumer inboxConsumer(
+      JdbcTemplate jdbc,
+      TransactionTemplate tx,
+      OutboxProperties outbox,
+      ObjectProvider<Tracer> tracer,
+      ObjectProvider<Propagator> propagator) {
+    return new InboxConsumer(
+        jdbc,
+        tx,
+        outbox.schema(),
+        tracer.getIfAvailable(() -> Tracer.NOOP),
+        propagator.getIfAvailable(() -> Propagator.NOOP));
   }
 
   @Bean
