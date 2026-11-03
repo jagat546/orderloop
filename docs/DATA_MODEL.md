@@ -82,8 +82,8 @@ The gateway resolves a webhook's tenant by looking up `shop_domain` as `orderloo
 
 | Table | Key columns |
 |---|---|
-| `order_saga` | As above |
-| `saga_step_log` | `tenant_id`, `order_id`, `seq`, `from_state`, `to_state`, `cause_event_id`, `at` |
+| `order_saga` | As above, plus `state_data`: the engine's full `SagaState` as JSON. `state` repeats its name for queries |
+| `saga_step_log` | `tenant_id`, `order_id`, `seq`, `from_state`, `to_state`, `cause_event_id`, `early`, `at`; `seq` is the saga's `version` after the step |
 | `saga_deadline` | `tenant_id`, `order_id`, `kind`, `due_at`, `status` |
 | `exception_case` | `tenant_id`, `case_id`, `order_id`, `reason`, `amount_at_risk_minor`, `currency`, `status`, `resolved_by` |
 | `leak_finding` | `tenant_id`, `detector`, `order_id`, `amount_at_risk_minor`, `recovered_minor`, `currency`, `is_estimate`, `status`; unique on the first three |

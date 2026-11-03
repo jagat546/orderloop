@@ -120,6 +120,33 @@ class ArchitectureTest {
           .resideInAPackage("java.util.logging..")
           .because("logs go through SLF4J with tenant and trace IDs in MDC");
 
+  // shortcut: matches the raw return type only, so ResponseEntity<StreamingResponseBody> passes.
+  @ArchTest
+  static final ArchRule controllersReturnSynchronously =
+      noMethods()
+          .that()
+          .areDeclaredInClassesThat()
+          .areMetaAnnotatedWith("org.springframework.stereotype.Controller")
+          .should()
+          .haveRawReturnType("java.util.concurrent.Callable")
+          .orShould()
+          .haveRawReturnType("java.util.concurrent.CompletableFuture")
+          .orShould()
+          .haveRawReturnType("java.util.concurrent.CompletionStage")
+          .orShould()
+          .haveRawReturnType("org.springframework.web.context.request.async.DeferredResult")
+          .orShould()
+          .haveRawReturnType("org.springframework.web.context.request.async.WebAsyncTask")
+          .orShould()
+          .haveRawReturnType("org.springframework.web.servlet.mvc.method.annotation.SseEmitter")
+          .orShould()
+          .haveRawReturnType(
+              "org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter")
+          .orShould()
+          .haveRawReturnType(
+              "org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody")
+          .because("an async result runs outside the request's tenant scope (invariant 3)");
+
   @ArchTest
   static final ArchRule noStandardStreams =
       GeneralCodingRules.NO_CLASSES_SHOULD_ACCESS_STANDARD_STREAMS;

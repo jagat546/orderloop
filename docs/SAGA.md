@@ -56,6 +56,16 @@ After a refund, `Refunding` leads to `Releasing` when stock is still held, to `C
 - **Approvals:** `RestockApproved` sends `RestockInventoryCmd` once; a second approval is ignored. A restock the merchant made by hand (`InventoryRestockedEvt` with no approval) is accepted.
 - **Early carrier events:** in `Booking`, `DeliveredEvt`, `DeliveryFailedEvt`, `RtoStartedEvt` and `RtoReceivedEvt` move the saga straight to where the event proves it is. So does `RtoReceivedEvt` in `InTransit` and `NdrPending`. The transition is marked early, so the skipped steps are logged as observed.
 
+## Applying a transition
+
+`SagaService` in `order-orchestrator` reads the saga row, calls `decide`, and applies the result in one transaction:
+
+- An ignored transition writes nothing and increments the `orderloop.saga.ignored` metric.
+- Otherwise it updates the row with `version = version + 1 WHERE version = <version read>`, writes the `saga_step_log` row with `seq` equal to the new version, and appends each command to the outbox on its topic from `Topics.of`. The `cause_event_id` and the outbox rows' `x-causation-id` are the reply's event ID.
+- If another transaction moved the saga after it was read, the update matches no row and the whole transaction rolls back, inbox row included. The listener's error handler retries it, so the reply is decided again against the state that won. Two replies for one order therefore never both act on the same state.
+- Creating an order inserts `Received` and applies `OrderAccepted`. A repeat finds the row and emits nothing.
+- Not yet stored: deadlines (M1.13), exceptions for `NeedsAttention` (M1.10), and findings (M1.13). A transition with a finding is refused rather than lost.
+
 ## Steps
 
 | State | Command | Replies | Default deadline | When the deadline passes |

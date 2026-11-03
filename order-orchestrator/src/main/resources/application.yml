@@ -1,0 +1,33 @@
+# Defaults match deploy/docker-compose.yml for development. Set the variables in any other
+# environment; see docs/DEPLOYMENT.md.
+spring:
+  application:
+    name: order-orchestrator
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    url: ${ORCHESTRATOR_DATABASE_URL:jdbc:postgresql://localhost:5432/orderloop}
+    # Never an owner or superuser: row-level security must apply (invariant 2).
+    username: orderloop_app
+    password: ${POSTGRES_APP_PASSWORD:orderloop_app_dev}
+    hikari:
+      maximum-pool-size: 10
+  flyway:
+    user: orderloop_owner
+    password: ${POSTGRES_OWNER_PASSWORD:orderloop_owner_dev}
+    schemas: orchestrator
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:29092}
+    consumer:
+      # A new consumer group reads replies from the start, so none sent before it joined is lost.
+      auto-offset-reset: earliest
+
+orderloop:
+  outbox:
+    schema: orchestrator
+    ops-password: ${POSTGRES_OPS_PASSWORD:orderloop_ops_dev}
