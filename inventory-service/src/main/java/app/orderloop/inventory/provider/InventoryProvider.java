@@ -17,6 +17,9 @@ public interface InventoryProvider {
   /** Gives back the order's held stock, as a compensation. */
   StockResult release(String tenantId, String orderId);
 
+  /** Puts a returned order's stock back on sale, after a human approved it. */
+  StockResult restock(String tenantId, String orderId);
+
   sealed interface StockResult {
 
     record Done() implements StockResult {}

@@ -3,10 +3,12 @@ package app.orderloop.inventory;
 import app.orderloop.dto.Envelope;
 import app.orderloop.dto.SagaCommand.ReleaseInventoryCmd;
 import app.orderloop.dto.SagaCommand.ReserveInventoryCmd;
+import app.orderloop.dto.SagaCommand.RestockInventoryCmd;
 import app.orderloop.dto.SagaEvent;
 import app.orderloop.dto.SagaEvent.InventoryFailedEvt;
 import app.orderloop.dto.SagaEvent.InventoryReleasedEvt;
 import app.orderloop.dto.SagaEvent.InventoryReservedEvt;
+import app.orderloop.dto.SagaEvent.InventoryRestockedEvt;
 import app.orderloop.dto.Topics;
 import app.orderloop.inventory.provider.InventoryProvider;
 import app.orderloop.inventory.provider.InventoryProvider.StockResult;
@@ -55,6 +57,18 @@ class InventoryHandler {
         commandEventId,
         switch (provider.release(tenant, command.orderId())) {
           case StockResult.Done d -> new InventoryReleasedEvt(command.orderId());
+          case StockResult.Failed f -> new InventoryFailedEvt(command.orderId(), f.reason());
+        });
+  }
+
+  /** Sent only after a human approved the restock; a failure parks the saga for a human. */
+  void restock(RestockInventoryCmd command, UUID commandEventId) {
+    String tenant = TenantContext.require();
+    reply(
+        tenant,
+        commandEventId,
+        switch (provider.restock(tenant, command.orderId())) {
+          case StockResult.Done d -> new InventoryRestockedEvt(command.orderId());
           case StockResult.Failed f -> new InventoryFailedEvt(command.orderId(), f.reason());
         });
   }

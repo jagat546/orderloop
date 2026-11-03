@@ -26,7 +26,7 @@ return switch (new Step(state, input)) {
 - The application layer applies a transition in one transaction: update the saga row with optimistic locking, write `saga_step_log`, write outbox rows, change deadlines.
 - Every state with work outstanding has a persisted deadline: all non-terminal states except `Received` (left at once) and `NeedsAttention` (an exception is already open). A missed deadline opens an exception and a finding, and never refunds automatically.
 - Only `RefundApproved` or an operator's `RetryStep` may lead to `RefundPaymentCmd`. Both are human actions.
-- An ignored `Transition` changes nothing, not even the deadline. Check `ignored()` first; `deadline()` throws on it.
+- An ignored `Transition` changes nothing, not even the deadline. A transition that only records a fact on the current step (`Transition.stay`, such as an early settlement) changes the state but keeps the deadline. Check `keepsDeadline()` before reading `deadline()`: it is true for both, and `deadline()` throws on both.
 - A compensation undoes only completed steps, in reverse order.
 - In observe mode, handlers verify state with the provider and never write to it. See `docs/SAGA.md`.
 - Downstream services never choose the next step.

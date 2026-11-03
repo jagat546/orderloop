@@ -57,23 +57,28 @@ public interface PaymentProvider {
   Optional<RefundResult> findRefund(String tenantId, String idempotencyKey);
 }
 
-public interface FulfilmentProvider {
-  ShipmentStatus lookup(String tenantId, String orderId);
-  BookingResult book(String tenantId, BookingRequest request); // Carries the idempotency key; blocked in observe mode
+public interface FulfilmentProvider { // fulfilment-service, built in M1.12
+  BookingResult book(String tenantId, String orderId); // Booked, or Failed(reason code); keyed by order
+  void requestReattempt(String tenantId, String orderId); // The carrier reports the outcome later
 }
 
-public interface InventoryProvider { // inventory-service, built in M1.10 and M1.11a
+public interface InventoryProvider { // inventory-service, built in M1.10 to M1.12
   StockResult reserve(String tenantId, String orderId); // Done, or Failed(reason code)
   StockResult release(String tenantId, String orderId); // A compensation
+  StockResult restock(String tenantId, String orderId); // After a human approved it
 }
 ```
 
 `PaymentProvider` is built: `lookup` (M1.11a), and `refund` and `findRefund` (M1.11b). `refund` throws when the outcome is unknown, such as on a timeout. Only providers that honour idempotency keys may implement it, because the reconciler may call again under the same key.
 
-The inventory simulator holds stock for every order except one whose ID ends in `-out-of-stock`, which fails with `OUT_OF_STOCK`, the way a test card number chooses a failure. Release always succeeds. It keeps no state.
+The inventory simulator holds stock for every order except one whose ID ends in `-out-of-stock`, which fails with `OUT_OF_STOCK`, the way a test card number chooses a failure. Release and restock always succeed. It keeps no state. `restockedByHand` reports a restock the merchant made with no command from us, as `InventoryRestockedEvt`.
 
-The payment simulator keeps an in-memory ledger per tenant. Tests and the demo record what checkout did for an order (prepaid captured, prepaid authorised only, or COD, with an amount in any ISO 4217 currency), and `lookup` returns exactly that. An order with nothing recorded has no payment, so verification fails with `NO_PAYMENT_FOUND`. Refunds honour idempotency keys and never exceed what is left of the capture, in its currency. `onNextRefund` makes the next refund for an order be rejected, or be made and then time out, so tests can drive every path. The ledger is lost on restart.
+The carrier simulator books every shipment except one whose order ID ends in `-no-courier`, which fails with `NO_COURIER`. `deliver`, `failDelivery`, `startRto` and `receiveRto` then report what the carrier saw, as its webhooks would, for shipments that tenant booked only. They report in the order called, so tests can send events late or out of order. Bookings are lost on restart.
 
-Both simulators do no I/O, so they run inside the inbox transaction. A real adapter must follow the provider side-effect pattern in `docs/ARCHITECTURE.md`, take the tenant's automation mode, and key its writes by order ID, because a retried step resends its command under a new event ID.
+Simulator reports (carrier events, `settle` and `restockedByHand`) go out through their service's outbox in the tenant's scope, with no causation ID, since no command caused them.
+
+The payment simulator keeps an in-memory ledger per tenant. Tests and the demo record what checkout did for an order (prepaid captured, prepaid authorised only, or COD, with an amount in any ISO 4217 currency), and `lookup` returns exactly that. An order with nothing recorded has no payment, so verification fails with `NO_PAYMENT_FOUND`. Refunds honour idempotency keys and never exceed what is left of the capture, in its currency. `onNextRefund` makes the next refund for an order be rejected, or be made and then time out, so tests can drive every path. `settle` reports that the order's money reached the merchant (the capture, or the COD remittance), as `SettlementObservedEvt`. The ledger is lost on restart.
+
+The simulators do no I/O, so they run inside the inbox transaction. A real adapter must follow the provider side-effect pattern in `docs/ARCHITECTURE.md`, take the tenant's automation mode, and key its writes by order ID, because a retried step resends its command under a new event ID.
 
 Each port has a simulator and, where planned, production adapters. The simulator is selected unless configuration names another adapter. It can succeed, fail, time out after succeeding, and send duplicate or out-of-order webhooks, and it supports any ISO 4217 currency.

@@ -98,7 +98,7 @@ The gateway resolves a webhook's tenant by looking up `shop_domain` as `orderloo
 | `payment.payment_record` | `tenant_id`, `order_id`, `provider_payment_id`, `method`, `captured_minor`, `refunded_minor`, `currency`, `status`. Not created yet: verification (M1.11a) reports the provider's record and keeps none; refunds need it to cap amounts (M1.11b) |
 | `payment.refund_intent` | `tenant_id`, `refund_id`, `order_id`, `attempt`, `amount_minor`, `currency`, `idempotency_key` (`<refund_id>:<attempt>`), `provider_refund_id`, `status`, `failure_reason`, `cause_event_id`, `updated_at`. `orderloop_ops` may only read it, through `ops_scan` |
 | `payment.settlement` | `tenant_id`, `order_id`, `expected_minor`, `settled_minor`, `currency`, `expected_at`, `settled_at` |
-| `fulfilment.shipment` | `tenant_id`, `order_id`, `awb`, `carrier`, `status`, `ndr_count`, `last_event_at` |
+| `fulfilment.shipment` | `tenant_id`, `order_id`, `awb`, `carrier`, `status`, `ndr_count`, `last_event_at`. Not created yet: the carrier simulator keeps its bookings in memory, so it arrives with the first real adapter |
 
 `refund_intent.status` is one of `INTENT`, `SENT`, `SUCCEEDED`, `FAILED`, `UNKNOWN`.
 

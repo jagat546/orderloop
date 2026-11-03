@@ -39,10 +39,7 @@ class CommandListener {
           switch (command) {
             case ReserveInventoryCmd c -> handler.reserve(c, eventId(record));
             case ReleaseInventoryCmd c -> handler.release(c, eventId(record));
-            // shortcut: nothing sends a restock before returns exist (M1.12). Until then it
-            // fails, is retried, and is dead-lettered rather than answered wrongly.
-            case RestockInventoryCmd c ->
-                throw new UnsupportedOperationException("RestockInventoryCmd arrives in M1.12");
+            case RestockInventoryCmd c -> handler.restock(c, eventId(record));
             // Another service's command on this topic is a producer bug.
             case ProcessPaymentCmd c -> throw wrongTopic(c);
             case RefundPaymentCmd c -> throw wrongTopic(c);

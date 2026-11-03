@@ -182,7 +182,7 @@ public class SagaService {
       }
     }
     // shortcut: transition.deadline() is not stored until M1.13 adds saga_deadline. The saga row
-    // still shows the state.
+    // still shows the state. M1.13 must leave the deadline alone when keepsDeadline() is true.
     log.info("Order {} moved from {} to {}", orderId, saga.state(), to);
   }
 

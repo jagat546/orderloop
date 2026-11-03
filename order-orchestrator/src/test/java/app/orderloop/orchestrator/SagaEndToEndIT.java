@@ -5,7 +5,10 @@ import static org.awaitility.Awaitility.await;
 
 import app.orderloop.dto.Money;
 import app.orderloop.dto.PaymentMethod;
+import app.orderloop.fulfilment.FulfilmentServiceApplication;
+import app.orderloop.fulfilment.provider.SimulatedCarrier;
 import app.orderloop.inventory.InventoryServiceApplication;
+import app.orderloop.inventory.provider.SimulatedInventory;
 import app.orderloop.payment.PaymentServiceApplication;
 import app.orderloop.payment.provider.SimulatedPayments;
 import app.orderloop.platform.TestDatabase;
@@ -32,9 +35,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Roadmaps M1.10 and M1.11a, end to end: the real orchestrator, inventory and payment services,
- * each in its own Spring context and schema, talking only through PostgreSQL outboxes and Kafka.
- * All connect as orderloop_app.
+ * Roadmaps M1.10 to M1.12, end to end: the real orchestrator, inventory, payment and fulfilment
+ * services, each in its own Spring context and schema, talking only through PostgreSQL outboxes and
+ * Kafka. All connect as orderloop_app.
  */
 @Testcontainers
 class SagaEndToEndIT {
@@ -48,6 +51,7 @@ class SagaEndToEndIT {
   private static ConfigurableApplicationContext orchestrator;
   private static ConfigurableApplicationContext inventory;
   private static ConfigurableApplicationContext payment;
+  private static ConfigurableApplicationContext fulfilment;
 
   private final HttpClient http = HttpClient.newHttpClient();
 
@@ -72,11 +76,16 @@ class SagaEndToEndIT {
         new SpringApplicationBuilder(PaymentServiceApplication.class)
             .web(WebApplicationType.NONE)
             .run(args("payment", "--spring.application.name=payment-service"));
+    fulfilment =
+        new SpringApplicationBuilder(FulfilmentServiceApplication.class)
+            .web(WebApplicationType.NONE)
+            .run(args("fulfilment", "--spring.application.name=fulfilment-service"));
   }
 
   @AfterAll
   static void stop() {
-    for (var context : new ConfigurableApplicationContext[] {payment, inventory, orchestrator}) {
+    for (var context :
+        new ConfigurableApplicationContext[] {fulfilment, payment, inventory, orchestrator}) {
       if (context != null) {
         context.close();
       }
@@ -84,18 +93,95 @@ class SagaEndToEndIT {
   }
 
   @Test
-  void aPaidOrderPassesVerifyingPaymentAndReachesBooking() {
+  void aPaidOrderPassesVerifyingPaymentAndBookingAndIsInTransit() {
     String order = "o-" + UUID.randomUUID();
-    payment
-        .getBean(SimulatedPayments.class)
-        .record("t_alpha", order, PaymentMethod.PREPAID, true, new Money(1234, "KWD"));
+    payments().record("t_alpha", order, PaymentMethod.PREPAID, true, new Money(1234, "KWD"));
 
     assertThat(create(order)).isEqualTo(201);
 
-    await().atMost(Duration.ofSeconds(60)).until(() -> "Booking".equals(state(order)));
+    awaitState(order, "InTransit");
     assertThat(steps(order))
         .containsExactly(
-            "Received->Allocating", "Allocating->VerifyingPayment", "VerifyingPayment->Booking");
+            "Received->Allocating",
+            "Allocating->VerifyingPayment",
+            "VerifyingPayment->Booking",
+            "Booking->InTransit");
+    assertThat(exceptions(order)).isEmpty();
+  }
+
+  @Test
+  void aDeliveredOrderClosesOnceItsMoneySettles() {
+    String order = "o-" + UUID.randomUUID();
+    payments().record("t_alpha", order, PaymentMethod.COD, false, new Money(1234, "KWD"));
+    assertThat(create(order)).isEqualTo(201);
+    awaitState(order, "InTransit");
+
+    carrier().deliver("t_alpha", order);
+    awaitState(order, "AwaitingSettlement");
+    payments().settle("t_alpha", order);
+
+    awaitState(order, "Closed");
+    assertThat(steps(order))
+        .containsExactly(
+            "Received->Allocating",
+            "Allocating->VerifyingPayment",
+            "VerifyingPayment->Booking",
+            "Booking->InTransit",
+            "InTransit->AwaitingSettlement",
+            "AwaitingSettlement->Closed");
+    assertThat(exceptions(order)).isEmpty();
+  }
+
+  @Test
+  void aPrepaidOrderWhoseMoneySettlesBeforeDeliveryClosesOnDelivery() {
+    String order = "o-" + UUID.randomUUID();
+    payments().record("t_alpha", order, PaymentMethod.PREPAID, true, new Money(1234, "KWD"));
+    assertThat(create(order)).isEqualTo(201);
+    awaitState(order, "InTransit");
+
+    payments().settle("t_alpha", order);
+    // The payout is recorded on the transit step before the carrier reports anything.
+    await()
+        .atMost(Duration.ofSeconds(60))
+        .until(() -> steps(order).contains("InTransit->InTransit"));
+    assertThat(state(order)).isEqualTo("InTransit");
+    carrier().deliver("t_alpha", order);
+
+    awaitState(order, "Closed");
+    assertThat(steps(order))
+        .containsExactly(
+            "Received->Allocating",
+            "Allocating->VerifyingPayment",
+            "VerifyingPayment->Booking",
+            "Booking->InTransit",
+            "InTransit->InTransit",
+            "InTransit->Closed");
+    assertThat(exceptions(order)).isEmpty();
+  }
+
+  @Test
+  void aReturnedOrderClosesAsRtoOnceItsStockIsBack() {
+    String order = "o-" + UUID.randomUUID();
+    payments().record("t_alpha", order, PaymentMethod.COD, false, new Money(1234, "KWD"));
+    assertThat(create(order)).isEqualTo(201);
+    awaitState(order, "InTransit");
+
+    carrier().startRto("t_alpha", order);
+    awaitState(order, "Returning");
+    carrier().receiveRto("t_alpha", order);
+    awaitState(order, "Restocking");
+    inventory.getBean(SimulatedInventory.class).restockedByHand("t_alpha", order);
+
+    awaitState(order, "ClosedRto");
+    assertThat(steps(order))
+        .containsExactly(
+            "Received->Allocating",
+            "Allocating->VerifyingPayment",
+            "VerifyingPayment->Booking",
+            "Booking->InTransit",
+            "InTransit->Returning",
+            "Returning->Restocking",
+            "Restocking->ClosedRto");
     assertThat(exceptions(order)).isEmpty();
   }
 
@@ -156,6 +242,18 @@ class SagaEndToEndIT {
   private String state(String order) {
     HttpResponse<String> response = send(HttpRequest.newBuilder(uri("/api/v1/orders/" + order)));
     return JSON.readTree(response.body()).get("state").asString();
+  }
+
+  private static SimulatedPayments payments() {
+    return payment.getBean(SimulatedPayments.class);
+  }
+
+  private static SimulatedCarrier carrier() {
+    return fulfilment.getBean(SimulatedCarrier.class);
+  }
+
+  private void awaitState(String order, String expected) {
+    await().atMost(Duration.ofSeconds(60)).until(() -> expected.equals(state(order)));
   }
 
   private static List<String> steps(String order) {

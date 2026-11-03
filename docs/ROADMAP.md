@@ -18,7 +18,7 @@ OrderLoop ships first as an open-source project (ADR 0007). M1 builds the reliab
 - [x] M1.10 Build `inventory-service` with a simulator. Done when: an order reaches `VerifyingPayment`, and a failure opens an exception.
 - [x] M1.11a Build `payment-service` payment verification behind `PaymentProvider`, with the simulator as default, and release stock in `inventory-service`. Done when: an order reaches `Booking`, and a failed payment releases stock and closes the order as cancelled.
 - [x] M1.11b Add refunds to `payment-service` with the intent pattern and a reconciler. Done when: a timeout after success leads to exactly one refund, in the captured currency.
-- [ ] M1.12 Build `fulfilment-service` behind `FulfilmentProvider`, with the simulator as default. Done when: orders reach `Closed` and `ClosedRto` through carrier events.
+- [x] M1.12 Build `fulfilment-service` behind `FulfilmentProvider`, with the simulator as default. Done when: orders reach `Closed` and `ClosedRto` through carrier events.
 - [ ] M1.13 Build persisted deadlines. Done when: a missed deadline opens an exception, and it survives a restart.
 - [ ] M1.14 Add observability: JSON logs, MDC, tracing through Kafka, metrics, a Grafana board. Done when: one trace follows an order across every service.
 - [ ] M1.15 Add a chaos suite: kill services at each crash point, duplicate deliveries, reorder replies, stop Kafka. Done when: every order ends in a named state with correct money, and no tenant sees another's data.

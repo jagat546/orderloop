@@ -1,7 +1,12 @@
 package app.orderloop.payment.provider;
 
+import app.orderloop.dto.Envelope;
 import app.orderloop.dto.Money;
 import app.orderloop.dto.PaymentMethod;
+import app.orderloop.dto.SagaEvent.SettlementObservedEvt;
+import app.orderloop.dto.Topics;
+import app.orderloop.platform.outbox.OutboxWriter;
+import app.orderloop.platform.tenant.TenantContext;
 import java.io.UncheckedIOException;
 import java.net.SocketTimeoutException;
 import java.util.ArrayList;
@@ -9,8 +14,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * The default payments: an in-memory ledger per tenant. Tests and the demo {@link #record} what
@@ -46,6 +53,40 @@ public class SimulatedPayments implements PaymentProvider {
   private final Map<RefundKey, RefundResult.Refunded> refundsByKey = new HashMap<>();
   private final Map<Key, List<Money>> refunds = new HashMap<>();
   private final Map<Key, Integer> refundCalls = new HashMap<>();
+
+  private final OutboxWriter outbox;
+  private final TransactionTemplate tx;
+
+  SimulatedPayments(OutboxWriter outbox, TransactionTemplate tx) {
+    this.outbox = outbox;
+    this.tx = tx;
+  }
+
+  /**
+   * Reports that the order's money reached the merchant: the capture, or for COD the cash the
+   * courier remitted. It goes out through the service's outbox in the tenant's scope, as a
+   * provider's settlement report would, and only for a payment that tenant has.
+   */
+  public void settle(String tenantId, String orderId) {
+    PaymentStatus.Found payment;
+    synchronized (this) {
+      payment = ledger.get(new Key(tenantId, orderId));
+    }
+    if (payment == null) {
+      throw new IllegalStateException("No payment recorded for order " + orderId);
+    }
+    var event = new SettlementObservedEvt(orderId, payment.amount());
+    TenantContext.callAs(
+        tenantId,
+        () ->
+            tx.execute(
+                status -> {
+                  outbox.append(
+                      Topics.PAYMENT_EVENTS,
+                      new Envelope(UUID.randomUUID(), tenantId, null, event));
+                  return null;
+                }));
+  }
 
   /** Records what checkout did for an order: captured, authorised only, or cash on delivery. */
   public synchronized void record(

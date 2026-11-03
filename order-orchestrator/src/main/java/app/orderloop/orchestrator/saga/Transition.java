@@ -16,6 +16,8 @@ import java.util.Optional;
  *
  * @param deadline the one deadline in force after this transition; empty cancels any
  * @param early the saga moved ahead on a provider event, so the skipped steps were observed
+ * @param keepsDeadline the deadline already in force stays as it is: the input was ignored, or it
+ *     only recorded a fact on the current step, such as an early settlement
  */
 public record Transition(
     SagaState next,
@@ -23,6 +25,7 @@ public record Transition(
     Optional<Deadline> deadline,
     Optional<Finding> finding,
     boolean early,
+    boolean keepsDeadline,
     boolean ignored) {
 
   public Transition {
@@ -33,13 +36,13 @@ public record Transition(
   /**
    * The one deadline in force after this transition; empty cancels any.
    *
-   * @throws IllegalStateException for an ignored transition, which keeps the deadline as it is;
-   *     reading it as "cancel" would leave the saga unable to time out
+   * @throws IllegalStateException for a transition that keeps the deadline as it is, ignored or
+   *     not; reading it as "cancel" would leave the saga unable to time out
    */
   @Override
   public Optional<Deadline> deadline() {
-    if (ignored) {
-      throw new IllegalStateException("An ignored transition changes no deadline");
+    if (keepsDeadline) {
+      throw new IllegalStateException("This transition keeps the deadline in force");
     }
     return deadline;
   }
@@ -48,25 +51,32 @@ public record Transition(
   static Transition enter(SagaState next, Instant now) {
     Optional<Deadline> deadline =
         DeadlineKind.of(next).map(kind -> new Deadline(kind, now.plus(kind.duration())));
-    return new Transition(next, List.of(), deadline, Optional.empty(), false, false);
+    return new Transition(next, List.of(), deadline, Optional.empty(), false, false, false);
+  }
+
+  /** Records a fact on the current step: the state's data changes, its deadline does not. */
+  static Transition stay(SagaState next) {
+    return new Transition(next, List.of(), Optional.empty(), Optional.empty(), false, true, false);
   }
 
   /** A late, duplicate or stale input: nothing changes. */
   static Transition ignore(SagaState current) {
-    return new Transition(current, List.of(), Optional.empty(), Optional.empty(), false, true);
+    return new Transition(
+        current, List.of(), Optional.empty(), Optional.empty(), false, true, true);
   }
 
   Transition emit(SagaCommand command) {
     List<SagaCommand> more = new ArrayList<>(commands);
     more.add(command);
-    return new Transition(next, more, deadline, finding, early, ignored);
+    return new Transition(next, more, deadline, finding, early, keepsDeadline, ignored);
   }
 
   Transition open(Finding opened) {
-    return new Transition(next, commands, deadline, Optional.of(opened), early, ignored);
+    return new Transition(
+        next, commands, deadline, Optional.of(opened), early, keepsDeadline, ignored);
   }
 
   Transition markEarly() {
-    return new Transition(next, commands, deadline, finding, true, ignored);
+    return new Transition(next, commands, deadline, finding, true, keepsDeadline, ignored);
   }
 }

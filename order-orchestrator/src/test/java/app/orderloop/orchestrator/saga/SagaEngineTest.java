@@ -101,6 +101,8 @@ class SagaEngineTest {
   private static final Payment UNCAPTURED = new Payment(PaymentMethod.PREPAID, false, TOTAL);
   private static final Payment PAID_KWD =
       new Payment(PaymentMethod.PREPAID, true, new Money(1234, "KWD"));
+  // The payout landed before the carrier reported delivery.
+  private static final Payment SETTLED = new Payment(PaymentMethod.PREPAID, true, TOTAL, true);
 
   // Releasing after a failed payment may still learn the payment was captured; other paths may not.
   private static final Releasing RELEASING_AFTER_FAILED_PAYMENT = new Releasing(O, true, null);
@@ -192,6 +194,22 @@ class SagaEngineTest {
                 reply(new RtoReceivedEvt(O)),
                 new Restocking(O, PAID, false))
             .movedEarly(),
+        // An early payout is remembered, and the booking deadline keeps running.
+        row(
+                EARLY,
+                new Booking(O, PAID),
+                reply(new SettlementObservedEvt(O, TOTAL)),
+                new Booking(O, SETTLED))
+            .keepingDeadline(),
+        ignored(LATE, new Booking(O, SETTLED), reply(new SettlementObservedEvt(O, TOTAL))),
+        row(EARLY, new Booking(O, SETTLED), reply(new RtoStartedEvt(O)), new Returning(O, SETTLED))
+            .movedEarly(),
+        row(EARLY, new Booking(O, SETTLED), reply(new DeliveredEvt(O)), new Closed(O)).movedEarly(),
+        row(
+            SUCCESS,
+            new Booking(O, SETTLED),
+            reply(new ShipmentBookedEvt(O)),
+            new InTransit(O, SETTLED)),
 
         // Releasing: a compensation
         row(SUCCESS, RELEASING, reply(new InventoryReleasedEvt(O)), new ClosedCancelled(O, false)),
@@ -243,6 +261,24 @@ class SagaEngineTest {
             .movedEarly(),
         ignored(LATE, new InTransit(O, PAID), reply(new ShipmentBookedEvt(O))),
         missed(new InTransit(O, PAID), DeadlineKind.IN_TRANSIT, Finding.STUCK_ORDER),
+        // Settlement before delivery: remembered without restarting the transit deadline, then
+        // delivery closes the order, skipping AwaitingSettlement.
+        row(
+                EARLY,
+                new InTransit(O, PAID),
+                reply(new SettlementObservedEvt(O, TOTAL)),
+                new InTransit(O, SETTLED))
+            .keepingDeadline(),
+        row(EARLY, new InTransit(O, SETTLED), reply(new DeliveredEvt(O)), new Closed(O))
+            .movedEarly(),
+        ignored(LATE, new InTransit(O, SETTLED), reply(new SettlementObservedEvt(O, TOTAL))),
+        row(
+            FAILURE,
+            new InTransit(O, SETTLED),
+            reply(new DeliveryFailedEvt(O, "CUSTOMER_UNAVAILABLE")),
+            new NdrPending(O, SETTLED)),
+        // Settled money does not make a stuck shipment any less stuck.
+        missed(new InTransit(O, SETTLED), DeadlineKind.IN_TRANSIT, Finding.STUCK_ORDER),
 
         // NdrPending
         row(SUCCESS, new NdrPending(O, PAID), new ReattemptApproved(), new InTransit(O, PAID))
@@ -262,6 +298,18 @@ class SagaEngineTest {
             .movedEarly(),
         ignored(LATE, new NdrPending(O, PAID), reply(new DeliveryFailedEvt(O, "AGAIN"))),
         missed(new NdrPending(O, PAID), DeadlineKind.NDR_PENDING, Finding.NDR_PAST_SLA),
+        row(
+                EARLY,
+                new NdrPending(O, PAID),
+                reply(new SettlementObservedEvt(O, TOTAL)),
+                new NdrPending(O, SETTLED))
+            .keepingDeadline(),
+        row(EARLY, new NdrPending(O, SETTLED), reply(new DeliveredEvt(O)), new Closed(O))
+            .movedEarly(),
+        ignored(LATE, new NdrPending(O, SETTLED), reply(new SettlementObservedEvt(O, TOTAL))),
+        missed(new NdrPending(O, SETTLED), DeadlineKind.NDR_PENDING, Finding.NDR_PAST_SLA),
+        row(SUCCESS, new NdrPending(O, SETTLED), new ReattemptApproved(), new InTransit(O, SETTLED))
+            .emits(new ReattemptDeliveryCmd(O)),
 
         // Returning: no failure reply; a missed deadline is how it fails.
         row(
@@ -393,6 +441,35 @@ class SagaEngineTest {
             LATE,
             attention(new Booking(O, PAID), AttentionReason.DEADLINE_MISSED),
             reply(processed(PAID))),
+        // A settlement while parked is remembered, but the shipment is still stuck: stay parked.
+        row(
+                EARLY,
+                attention(new InTransit(O, PAID), AttentionReason.DEADLINE_MISSED),
+                reply(new SettlementObservedEvt(O, TOTAL)),
+                attention(new InTransit(O, SETTLED), AttentionReason.DEADLINE_MISSED))
+            .keepingDeadline(),
+        row(
+                SUCCESS,
+                attention(new InTransit(O, SETTLED), AttentionReason.DEADLINE_MISSED),
+                reply(new DeliveredEvt(O)),
+                new Closed(O))
+            .movedEarly(),
+        ignored(LATE, new Returning(O, PAID), reply(new SettlementObservedEvt(O, TOTAL))),
+        ignored(
+            LATE,
+            attention(new InTransit(O, SETTLED), AttentionReason.DEADLINE_MISSED),
+            reply(new SettlementObservedEvt(O, TOTAL))),
+        row(
+                EARLY,
+                attention(new NdrPending(O, PAID), AttentionReason.DEADLINE_MISSED),
+                reply(new SettlementObservedEvt(O, TOTAL)),
+                attention(new NdrPending(O, SETTLED), AttentionReason.DEADLINE_MISSED))
+            .keepingDeadline(),
+        row(
+            RETRY,
+            attention(new InTransit(O, SETTLED), AttentionReason.DEADLINE_MISSED),
+            new RetryStep(),
+            new InTransit(O, SETTLED)),
         ignored(
             LATE,
             attention(new Booking(O, PAID), AttentionReason.DEADLINE_MISSED),
@@ -486,9 +563,21 @@ class SagaEngineTest {
     assertThat(transition.commands()).as("commands").containsExactlyElementsOf(row.commands());
     assertThat(transition.finding()).as("finding").isEqualTo(Optional.ofNullable(row.finding()));
     assertThat(transition.early()).as("early").isEqualTo(row.early());
-    if (!row.ignored()) {
+    boolean keeps = row.ignored() || row.keepsDeadline();
+    assertThat(transition.keepsDeadline()).as("keeps deadline").isEqualTo(keeps);
+    if (!keeps) {
       assertThat(transition.deadline()).as("deadline").isEqualTo(expectedDeadline(row.next()));
     }
+  }
+
+  @Test
+  void aTransitionThatKeepsTheDeadlineHasNoNewDeadlineToApply() {
+    Transition kept =
+        SagaEngine.decide(new InTransit(O, PAID), reply(new SettlementObservedEvt(O, TOTAL)), NOW);
+
+    assertThat(kept.ignored()).isFalse();
+    assertThat(kept.keepsDeadline()).isTrue();
+    assertThatThrownBy(kept::deadline).isInstanceOf(IllegalStateException.class);
   }
 
   /** The deadlines in docs/SAGA.md, kind and duration both written out, not taken from the code. */
@@ -614,18 +703,24 @@ class SagaEngineTest {
       List<SagaCommand> commands,
       Finding finding,
       boolean early,
+      boolean keepsDeadline,
       boolean ignored) {
 
     Row emits(SagaCommand... more) {
-      return new Row(kind, given, input, next, List.of(more), finding, early, ignored);
+      return new Row(
+          kind, given, input, next, List.of(more), finding, early, keepsDeadline, ignored);
     }
 
     Row finding(Finding opened) {
-      return new Row(kind, given, input, next, commands, opened, early, ignored);
+      return new Row(kind, given, input, next, commands, opened, early, keepsDeadline, ignored);
     }
 
     Row movedEarly() {
-      return new Row(kind, given, input, next, commands, finding, true, ignored);
+      return new Row(kind, given, input, next, commands, finding, true, keepsDeadline, ignored);
+    }
+
+    Row keepingDeadline() {
+      return new Row(kind, given, input, next, commands, finding, early, true, ignored);
     }
 
     @Override
@@ -644,11 +739,11 @@ class SagaEngineTest {
   }
 
   private static Row row(Kind kind, SagaState given, SagaInput input, SagaState next) {
-    return new Row(kind, given, input, next, List.of(), null, false, false);
+    return new Row(kind, given, input, next, List.of(), null, false, false, false);
   }
 
   private static Row ignored(Kind kind, SagaState given, SagaInput input) {
-    return new Row(kind, given, input, given, List.of(), null, false, true);
+    return new Row(kind, given, input, given, List.of(), null, false, false, true);
   }
 
   /** A state's own deadline passed: park it with an exception, and open the named finding. */

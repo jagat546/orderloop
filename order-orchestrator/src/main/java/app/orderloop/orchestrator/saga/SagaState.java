@@ -9,11 +9,24 @@ public sealed interface SagaState {
 
   String orderId();
 
-  /** What the payment check found; decides between refunding and releasing. */
-  record Payment(PaymentMethod method, boolean captured, Money amount) {
+  /**
+   * What the payment check found; decides between refunding and releasing.
+   *
+   * @param settled the money already reached the merchant, reported before delivery, so delivery
+   *     closes the order (docs/SAGA.md, early settlement)
+   */
+  record Payment(PaymentMethod method, boolean captured, Money amount, boolean settled) {
     public Payment {
       Objects.requireNonNull(method, "method");
       Objects.requireNonNull(amount, "amount");
+    }
+
+    public Payment(PaymentMethod method, boolean captured, Money amount) {
+      this(method, captured, amount, false);
+    }
+
+    Payment asSettled() {
+      return new Payment(method, captured, amount, true);
     }
   }
 

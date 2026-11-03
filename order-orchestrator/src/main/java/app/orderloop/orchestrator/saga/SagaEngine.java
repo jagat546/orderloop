@@ -107,7 +107,9 @@ public final class SagaEngine {
               ? enter(new RefundProposed(s.orderId(), s.payment(), AfterRefund.RELEASE_STOCK), now)
               : release(s.orderId(), false, now);
       case Step(Booking s, Reply(DeliveredEvt e)) ->
-          enter(new AwaitingSettlement(s.orderId(), s.payment()), now).markEarly();
+          delivered(s.orderId(), s.payment(), now).markEarly();
+      case Step(Booking s, Reply(SettlementObservedEvt e)) when !s.payment().settled() ->
+          Transition.stay(new Booking(s.orderId(), s.payment().asSettled()));
       case Step(Booking s, Reply(DeliveryFailedEvt e)) ->
           enter(new NdrPending(s.orderId(), s.payment()), now).markEarly();
       case Step(Booking s, Reply(RtoStartedEvt e)) ->
@@ -134,8 +136,10 @@ public final class SagaEngine {
           missed(s, Finding.STUCK_ORDER);
       case Step(Releasing s, SagaInput other) -> Transition.ignore(s);
 
-      case Step(InTransit s, Reply(DeliveredEvt e)) ->
-          enter(new AwaitingSettlement(s.orderId(), s.payment()), now);
+      case Step(InTransit s, Reply(DeliveredEvt e)) -> delivered(s.orderId(), s.payment(), now);
+      // A prepaid payout often lands before delivery: remember it, keep the transit deadline.
+      case Step(InTransit s, Reply(SettlementObservedEvt e)) when !s.payment().settled() ->
+          Transition.stay(new InTransit(s.orderId(), s.payment().asSettled()));
       case Step(InTransit s, Reply(DeliveryFailedEvt e)) ->
           enter(new NdrPending(s.orderId(), s.payment()), now);
       case Step(InTransit s, Reply(RtoStartedEvt e)) ->
@@ -149,8 +153,9 @@ public final class SagaEngine {
       case Step(NdrPending s, ReattemptApproved a) ->
           enter(new InTransit(s.orderId(), s.payment()), now)
               .emit(new ReattemptDeliveryCmd(s.orderId()));
-      case Step(NdrPending s, Reply(DeliveredEvt e)) ->
-          enter(new AwaitingSettlement(s.orderId(), s.payment()), now);
+      case Step(NdrPending s, Reply(DeliveredEvt e)) -> delivered(s.orderId(), s.payment(), now);
+      case Step(NdrPending s, Reply(SettlementObservedEvt e)) when !s.payment().settled() ->
+          Transition.stay(new NdrPending(s.orderId(), s.payment().asSettled()));
       case Step(NdrPending s, ReturnDecided r) ->
           enter(new Returning(s.orderId(), s.payment()), now);
       case Step(NdrPending s, Reply(RtoStartedEvt e)) ->
@@ -230,9 +235,20 @@ public final class SagaEngine {
    */
   private static Transition resume(NeedsAttention parked, SagaInput input, Instant now) {
     Transition fromPrior = decide(parked.prior(), input, now);
-    return fromPrior.ignored() || fromPrior.next() instanceof NeedsAttention
-        ? Transition.ignore(parked)
+    if (fromPrior.ignored() || fromPrior.next() instanceof NeedsAttention) {
+      return Transition.ignore(parked);
+    }
+    // A fact recorded on the parked step, such as an early settlement: still stuck, stay parked.
+    return fromPrior.keepsDeadline()
+        ? Transition.stay(new NeedsAttention(parked.orderId(), fromPrior.next(), parked.reason()))
         : fromPrior;
+  }
+
+  /** Delivered: close at once if the money already settled, otherwise wait for it. */
+  private static Transition delivered(String orderId, Payment payment, Instant now) {
+    return payment.settled()
+        ? enter(new Closed(orderId), now).markEarly()
+        : enter(new AwaitingSettlement(orderId, payment), now);
   }
 
   /** Re-runs the step the saga stopped at: its command again, with a fresh deadline. */

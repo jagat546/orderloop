@@ -10,6 +10,7 @@ import app.orderloop.dto.SagaCommand.ReleaseInventoryCmd;
 import app.orderloop.dto.SagaCommand.ReserveInventoryCmd;
 import app.orderloop.dto.SagaCommand.RestockInventoryCmd;
 import app.orderloop.dto.Topics;
+import app.orderloop.inventory.provider.SimulatedInventory;
 import app.orderloop.platform.TestDatabase;
 import app.orderloop.platform.tenant.TenantContext;
 import java.time.Duration;
@@ -70,6 +71,7 @@ class InventoryIT {
   }
 
   @Autowired private JdbcTemplate jdbc;
+  @Autowired private SimulatedInventory inventory;
 
   @Test
   void connectsAsTheAppRoleWhichCannotBypassRowLevelSecurity() {
@@ -142,16 +144,31 @@ class InventoryIT {
   }
 
   @Test
-  void aRestockIsDeadLetteredWithItsTenantUntilReturnsExist() throws Exception {
+  void aRestockRepliesInventoryRestocked() throws Exception {
+    String order = "o-" + UUID.randomUUID();
     UUID command = UUID.randomUUID();
 
-    send("t_alpha", command, new RestockInventoryCmd("o-" + UUID.randomUUID()));
+    send("t_alpha", command, new RestockInventoryCmd(order));
 
-    List<ConsumerRecord<String, String>> dead =
-        recordsUntil(Topics.deadLetter(Topics.INVENTORY_COMMANDS), withEventId(command));
-    ConsumerRecord<String, String> letter =
-        dead.stream().filter(withEventId(command)).findFirst().orElseThrow();
-    assertThat(header(letter, "x-tenant-id")).isEqualTo("t_alpha");
+    ConsumerRecord<String, String> reply = awaitReplyTo(command);
+    assertThat(header(reply, "x-event-type")).isEqualTo("InventoryRestockedEvt");
+    assertThat(reply.value()).isEqualTo("{\"orderId\":\"" + order + "\"}");
+  }
+
+  @Test
+  void aRestockTheMerchantMadeByHandIsReportedWithItsTenant() {
+    String order = "o-" + UUID.randomUUID();
+
+    inventory.restockedByHand("t_alpha", order);
+
+    ConsumerRecord<String, String> event =
+        recordsUntil(Topics.INVENTORY_EVENTS, r -> order.equals(r.key())).stream()
+            .filter(r -> order.equals(r.key()))
+            .findFirst()
+            .orElseThrow();
+    assertThat(header(event, "x-event-type")).isEqualTo("InventoryRestockedEvt");
+    assertThat(header(event, "x-tenant-id")).isEqualTo("t_alpha");
+    assertThat(header(event, "x-causation-id")).isNull();
   }
 
   @Test

@@ -1,6 +1,7 @@
 package app.orderloop.orchestrator.order;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import app.orderloop.dto.Money;
 import app.orderloop.dto.PaymentMethod;
@@ -11,6 +12,7 @@ import app.orderloop.orchestrator.saga.SagaState.Payment;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import tools.jackson.core.JacksonException;
 
 class SagaStateJsonTest {
 
@@ -47,6 +49,33 @@ class SagaStateJsonTest {
           .as(state.toString())
           .isEqualTo(state);
     }
+  }
+
+  @Test
+  void aSettledPaymentSurvivesTheRoundTrip() {
+    SagaState state =
+        new SagaState.InTransit(
+            "o-1", new Payment(PaymentMethod.PREPAID, true, new Money(1234, "KWD"), true));
+
+    assertThat(SagaStateJson.read(SagaStateJson.write(state))).isEqualTo(state);
+  }
+
+  @Test
+  void aRowStoredBeforePaymentsKnewSettlementReadsAsUnsettled() {
+    String stored =
+        "{\"type\":\"InTransit\",\"orderId\":\"o-1\",\"payment\":{\"method\":\"PREPAID\","
+            + "\"captured\":true,\"amount\":{\"amountMinor\":1234,\"currency\":\"KWD\"}}}";
+
+    assertThat(SagaStateJson.read(stored)).isEqualTo(new SagaState.InTransit("o-1", KWD));
+  }
+
+  @Test
+  void aPaymentMissingAFieldThatAlwaysExistedIsStillRefused() {
+    String corrupt =
+        "{\"type\":\"InTransit\",\"orderId\":\"o-1\",\"payment\":{\"method\":\"PREPAID\","
+            + "\"amount\":{\"amountMinor\":1234,\"currency\":\"KWD\"}}}";
+
+    assertThatThrownBy(() -> SagaStateJson.read(corrupt)).isInstanceOf(JacksonException.class);
   }
 
   @Test

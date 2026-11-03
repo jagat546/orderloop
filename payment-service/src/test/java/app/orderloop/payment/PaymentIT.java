@@ -169,6 +169,38 @@ class PaymentIT {
     assertThat(replies.stream().filter(causedBy(command))).hasSize(1);
   }
 
+  // --- Settlement (roadmap M1.12) ---
+
+  @Test
+  void aSettlementIsReportedWithTheExactAmountAndItsTenant() {
+    String order = newOrderId();
+    payments.record("t_alpha", order, PaymentMethod.COD, false, new Money(500, "JPY"));
+
+    payments.settle("t_alpha", order);
+
+    ConsumerRecord<String, String> event =
+        recordsUntil(Topics.PAYMENT_EVENTS, keyed(order, "SettlementObservedEvt")).stream()
+            .filter(keyed(order, "SettlementObservedEvt"))
+            .findFirst()
+            .orElseThrow();
+    assertThat(header(event, "x-tenant-id")).isEqualTo("t_alpha");
+    assertThat(event.value())
+        .isEqualTo(
+            "{\"orderId\":\"%s\",\"amount\":{\"amountMinor\":500,\"currency\":\"JPY\"}}"
+                .formatted(order));
+  }
+
+  @Test
+  void anOrderWithNoPaymentCannotBeSettled() {
+    String order = newOrderId();
+    payments.record("t_alpha", order, PaymentMethod.PREPAID, true, new Money(1, "EUR"));
+
+    assertThatThrownBy(() -> payments.settle("t_alpha", newOrderId()))
+        .isInstanceOf(IllegalStateException.class);
+    assertThatThrownBy(() -> payments.settle("t_beta", order))
+        .isInstanceOf(IllegalStateException.class);
+  }
+
   // --- Refunds (roadmap M1.11b) ---
 
   @Test
@@ -402,6 +434,10 @@ class PaymentIT {
         .filter(causedBy(command))
         .findFirst()
         .orElseThrow();
+  }
+
+  private static Predicate<ConsumerRecord<String, String>> keyed(String order, String type) {
+    return r -> order.equals(r.key()) && type.equals(header(r, "x-event-type"));
   }
 
   private static Predicate<ConsumerRecord<String, String>> causedBy(UUID eventId) {
