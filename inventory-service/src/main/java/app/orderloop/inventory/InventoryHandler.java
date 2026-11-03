@@ -1,13 +1,15 @@
 package app.orderloop.inventory;
 
 import app.orderloop.dto.Envelope;
+import app.orderloop.dto.SagaCommand.ReleaseInventoryCmd;
 import app.orderloop.dto.SagaCommand.ReserveInventoryCmd;
 import app.orderloop.dto.SagaEvent;
 import app.orderloop.dto.SagaEvent.InventoryFailedEvt;
+import app.orderloop.dto.SagaEvent.InventoryReleasedEvt;
 import app.orderloop.dto.SagaEvent.InventoryReservedEvt;
 import app.orderloop.dto.Topics;
 import app.orderloop.inventory.provider.InventoryProvider;
-import app.orderloop.inventory.provider.InventoryProvider.Reservation;
+import app.orderloop.inventory.provider.InventoryProvider.StockResult;
 import app.orderloop.platform.outbox.OutboxWriter;
 import app.orderloop.platform.tenant.TenantContext;
 import java.util.UUID;
@@ -36,16 +38,30 @@ class InventoryHandler {
   // simulator does no I/O. A real adapter needs intent, call after commit, result (invariant 6).
   void reserve(ReserveInventoryCmd command, UUID commandEventId) {
     String tenant = TenantContext.require();
-    SagaEvent reply =
+    reply(
+        tenant,
+        commandEventId,
         switch (provider.reserve(tenant, command.orderId())) {
-          case Reservation.Reserved r -> new InventoryReservedEvt(command.orderId());
-          case Reservation.Failed f -> new InventoryFailedEvt(command.orderId(), f.reason());
-        };
+          case StockResult.Done d -> new InventoryReservedEvt(command.orderId());
+          case StockResult.Failed f -> new InventoryFailedEvt(command.orderId(), f.reason());
+        });
+  }
+
+  /** A compensation: a failure goes back as InventoryFailedEvt, and the saga parks for a human. */
+  void release(ReleaseInventoryCmd command, UUID commandEventId) {
+    String tenant = TenantContext.require();
+    reply(
+        tenant,
+        commandEventId,
+        switch (provider.release(tenant, command.orderId())) {
+          case StockResult.Done d -> new InventoryReleasedEvt(command.orderId());
+          case StockResult.Failed f -> new InventoryFailedEvt(command.orderId(), f.reason());
+        });
+  }
+
+  private void reply(String tenant, UUID commandEventId, SagaEvent reply) {
     outbox.append(
         Topics.INVENTORY_EVENTS, new Envelope(UUID.randomUUID(), tenant, commandEventId, reply));
-    log.info(
-        "Answered reservation for order {} with {}",
-        command.orderId(),
-        reply.getClass().getSimpleName());
+    log.info("Answered order {} with {}", reply.orderId(), reply.getClass().getSimpleName());
   }
 }

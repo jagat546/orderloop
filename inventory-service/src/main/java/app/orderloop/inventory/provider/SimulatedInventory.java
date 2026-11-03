@@ -19,9 +19,15 @@ class SimulatedInventory implements InventoryProvider {
   static final String OUT_OF_STOCK_SUFFIX = "-out-of-stock";
 
   @Override
-  public Reservation reserve(String tenantId, String orderId) {
+  public StockResult reserve(String tenantId, String orderId) {
     return orderId.endsWith(OUT_OF_STOCK_SUFFIX)
-        ? new Reservation.Failed("OUT_OF_STOCK")
-        : new Reservation.Reserved();
+        ? new StockResult.Failed("OUT_OF_STOCK")
+        : new StockResult.Done();
+  }
+
+  /** Always gives the stock back; a repeat is harmless because nothing is held. */
+  @Override
+  public StockResult release(String tenantId, String orderId) {
+    return new StockResult.Done();
   }
 }

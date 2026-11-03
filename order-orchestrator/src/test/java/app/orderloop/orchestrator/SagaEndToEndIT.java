@@ -3,7 +3,11 @@ package app.orderloop.orchestrator;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import app.orderloop.dto.Money;
+import app.orderloop.dto.PaymentMethod;
 import app.orderloop.inventory.InventoryServiceApplication;
+import app.orderloop.payment.PaymentServiceApplication;
+import app.orderloop.payment.provider.SimulatedPayments;
 import app.orderloop.platform.TestDatabase;
 import app.orderloop.platform.tenant.TenantContext;
 import java.net.URI;
@@ -28,9 +32,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Roadmap M1.10, end to end: the real orchestrator and inventory service, each in its own Spring
- * context and schema, talking only through PostgreSQL outboxes and Kafka. Both connect as
- * orderloop_app.
+ * Roadmaps M1.10 and M1.11a, end to end: the real orchestrator, inventory and payment services,
+ * each in its own Spring context and schema, talking only through PostgreSQL outboxes and Kafka.
+ * All connect as orderloop_app.
  */
 @Testcontainers
 class SagaEndToEndIT {
@@ -43,6 +47,7 @@ class SagaEndToEndIT {
 
   private static ConfigurableApplicationContext orchestrator;
   private static ConfigurableApplicationContext inventory;
+  private static ConfigurableApplicationContext payment;
 
   private final HttpClient http = HttpClient.newHttpClient();
 
@@ -57,31 +62,56 @@ class SagaEndToEndIT {
                     "--orderloop.security.dev-api-keys-enabled=true",
                     "--orderloop.security.dev-api-keys[0].tenant=t_alpha",
                     "--orderloop.security.dev-api-keys[0].key=" + KEY));
-    // Both services' application.yml share a classpath here, so every setting that differs is an
-    // argument, which outranks either file.
+    // Every service's application.yml shares a classpath here, so every setting that differs is an
+    // argument, which outranks any file.
     inventory =
         new SpringApplicationBuilder(InventoryServiceApplication.class)
             .web(WebApplicationType.NONE)
             .run(args("inventory", "--spring.application.name=inventory-service"));
+    payment =
+        new SpringApplicationBuilder(PaymentServiceApplication.class)
+            .web(WebApplicationType.NONE)
+            .run(args("payment", "--spring.application.name=payment-service"));
   }
 
   @AfterAll
   static void stop() {
-    if (inventory != null) {
-      inventory.close();
-    }
-    if (orchestrator != null) {
-      orchestrator.close();
+    for (var context : new ConfigurableApplicationContext[] {payment, inventory, orchestrator}) {
+      if (context != null) {
+        context.close();
+      }
     }
   }
 
   @Test
-  void anOrderReachesVerifyingPaymentThroughTheInventoryService() {
+  void aPaidOrderPassesVerifyingPaymentAndReachesBooking() {
     String order = "o-" + UUID.randomUUID();
+    payment
+        .getBean(SimulatedPayments.class)
+        .record("t_alpha", order, PaymentMethod.PREPAID, true, new Money(1234, "KWD"));
 
     assertThat(create(order)).isEqualTo(201);
 
-    await().atMost(Duration.ofSeconds(60)).until(() -> "VerifyingPayment".equals(state(order)));
+    await().atMost(Duration.ofSeconds(60)).until(() -> "Booking".equals(state(order)));
+    assertThat(steps(order))
+        .containsExactly(
+            "Received->Allocating", "Allocating->VerifyingPayment", "VerifyingPayment->Booking");
+    assertThat(exceptions(order)).isEmpty();
+  }
+
+  @Test
+  void aFailedPaymentReleasesStockAndClosesTheOrderAsCancelled() {
+    String order = "o-" + UUID.randomUUID(); // No payment recorded, so verification fails.
+
+    assertThat(create(order)).isEqualTo(201);
+
+    await().atMost(Duration.ofSeconds(60)).until(() -> "ClosedCancelled".equals(state(order)));
+    assertThat(steps(order))
+        .containsExactly(
+            "Received->Allocating",
+            "Allocating->VerifyingPayment",
+            "VerifyingPayment->Releasing",
+            "Releasing->ClosedCancelled");
     assertThat(exceptions(order)).isEmpty();
   }
 
@@ -126,6 +156,18 @@ class SagaEndToEndIT {
   private String state(String order) {
     HttpResponse<String> response = send(HttpRequest.newBuilder(uri("/api/v1/orders/" + order)));
     return JSON.readTree(response.body()).get("state").asString();
+  }
+
+  private static List<String> steps(String order) {
+    JdbcTemplate jdbc = orchestrator.getBean(JdbcTemplate.class);
+    return TenantContext.callAs(
+        "t_alpha",
+        () ->
+            jdbc.queryForList(
+                "SELECT from_state || '->' || to_state FROM orchestrator.saga_step_log"
+                    + " WHERE order_id = ? ORDER BY seq",
+                String.class,
+                order));
   }
 
   private static List<String> exceptions(String order) {

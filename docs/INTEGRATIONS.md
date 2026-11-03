@@ -62,11 +62,18 @@ public interface FulfilmentProvider {
   BookingResult book(String tenantId, BookingRequest request); // Carries the idempotency key; blocked in observe mode
 }
 
-public interface InventoryProvider { // inventory-service, built in M1.10
-  Reservation reserve(String tenantId, String orderId); // Reserved, or Failed(reason code)
+public interface InventoryProvider { // inventory-service, built in M1.10 and M1.11a
+  StockResult reserve(String tenantId, String orderId); // Done, or Failed(reason code)
+  StockResult release(String tenantId, String orderId); // A compensation
 }
 ```
 
-The inventory simulator holds stock for every order except one whose ID ends in `-out-of-stock`, which fails with `OUT_OF_STOCK`, the way a test card number chooses a failure. It keeps no state and does no I/O, so it runs inside the inbox transaction; a real adapter must follow the provider side-effect pattern in `docs/ARCHITECTURE.md`.
+`PaymentProvider.lookup` is built (M1.11a); `refund` and `findRefund` arrive with M1.11b.
+
+The inventory simulator holds stock for every order except one whose ID ends in `-out-of-stock`, which fails with `OUT_OF_STOCK`, the way a test card number chooses a failure. Release always succeeds. It keeps no state.
+
+The payment simulator keeps an in-memory ledger per tenant. Tests and the demo record what checkout did for an order (prepaid captured, prepaid authorised only, or COD, with an amount in any ISO 4217 currency), and `lookup` returns exactly that. An order with nothing recorded has no payment, so verification fails with `NO_PAYMENT_FOUND`. The ledger is lost on restart.
+
+Both simulators do no I/O, so they run inside the inbox transaction. A real adapter must follow the provider side-effect pattern in `docs/ARCHITECTURE.md`, take the tenant's automation mode, and key its writes by order ID, because a retried step resends its command under a new event ID.
 
 Each port has a simulator and, where planned, production adapters. The simulator is selected unless configuration names another adapter. It can succeed, fail, time out after succeeding, and send duplicate or out-of-order webhooks, and it supports any ISO 4217 currency.

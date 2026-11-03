@@ -6,7 +6,9 @@ import static org.awaitility.Awaitility.await;
 
 import app.orderloop.dto.Message;
 import app.orderloop.dto.SagaCommand.ProcessPaymentCmd;
+import app.orderloop.dto.SagaCommand.ReleaseInventoryCmd;
 import app.orderloop.dto.SagaCommand.ReserveInventoryCmd;
+import app.orderloop.dto.SagaCommand.RestockInventoryCmd;
 import app.orderloop.dto.Topics;
 import app.orderloop.platform.TestDatabase;
 import app.orderloop.platform.tenant.TenantContext;
@@ -124,6 +126,32 @@ class InventoryIT {
     List<ConsumerRecord<String, String>> replies =
         recordsUntil(Topics.INVENTORY_EVENTS, causedBy(marker));
     assertThat(replies.stream().filter(causedBy(command))).hasSize(1);
+  }
+
+  @Test
+  void aReleaseRepliesInventoryReleased() throws Exception {
+    String order = "o-" + UUID.randomUUID();
+    UUID command = UUID.randomUUID();
+
+    send("t_alpha", command, new ReleaseInventoryCmd(order));
+
+    ConsumerRecord<String, String> reply = awaitReplyTo(command);
+    assertThat(header(reply, "x-event-type")).isEqualTo("InventoryReleasedEvt");
+    assertThat(header(reply, "x-tenant-id")).isEqualTo("t_alpha");
+    assertThat(reply.value()).isEqualTo("{\"orderId\":\"" + order + "\"}");
+  }
+
+  @Test
+  void aRestockIsDeadLetteredWithItsTenantUntilReturnsExist() throws Exception {
+    UUID command = UUID.randomUUID();
+
+    send("t_alpha", command, new RestockInventoryCmd("o-" + UUID.randomUUID()));
+
+    List<ConsumerRecord<String, String>> dead =
+        recordsUntil(Topics.deadLetter(Topics.INVENTORY_COMMANDS), withEventId(command));
+    ConsumerRecord<String, String> letter =
+        dead.stream().filter(withEventId(command)).findFirst().orElseThrow();
+    assertThat(header(letter, "x-tenant-id")).isEqualTo("t_alpha");
   }
 
   @Test
