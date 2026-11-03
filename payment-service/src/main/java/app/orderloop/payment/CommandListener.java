@@ -24,10 +24,12 @@ class CommandListener {
 
   private final InboxConsumer inbox;
   private final PaymentHandler handler;
+  private final Refunds refunds;
 
-  CommandListener(InboxConsumer inbox, PaymentHandler handler) {
+  CommandListener(InboxConsumer inbox, PaymentHandler handler, Refunds refunds) {
     this.inbox = inbox;
     this.handler = handler;
+    this.refunds = refunds;
   }
 
   @KafkaListener(topics = Topics.PAYMENT_COMMANDS, groupId = "payment-service")
@@ -38,10 +40,8 @@ class CommandListener {
         command -> {
           switch (command) {
             case ProcessPaymentCmd c -> handler.verify(c, eventId(record));
-            // shortcut: only a human approval sends a refund, and none can be given before
-            // M1.11b adds refunds. Until then it fails, is retried, and is dead-lettered.
-            case RefundPaymentCmd c ->
-                throw new UnsupportedOperationException("RefundPaymentCmd arrives in M1.11b");
+            // Records the intent only; RefundReconciler moves the money after this commits.
+            case RefundPaymentCmd c -> refunds.request(c, eventId(record));
             // Another service's command on this topic is a producer bug.
             case ReserveInventoryCmd c -> throw wrongTopic(c);
             case ReleaseInventoryCmd c -> throw wrongTopic(c);

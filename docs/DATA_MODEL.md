@@ -96,7 +96,7 @@ The gateway resolves a webhook's tenant by looking up `shop_domain` as `orderloo
 |---|---|
 | `inventory.allocation` | `tenant_id`, `order_id`, `sku`, `quantity`, `location_id`, `status`. Not created yet: the simulator keeps no state, so it arrives with the first real adapter |
 | `payment.payment_record` | `tenant_id`, `order_id`, `provider_payment_id`, `method`, `captured_minor`, `refunded_minor`, `currency`, `status`. Not created yet: verification (M1.11a) reports the provider's record and keeps none; refunds need it to cap amounts (M1.11b) |
-| `payment.refund_intent` | `tenant_id`, `refund_id`, `order_id`, `amount_minor`, `currency`, `idempotency_key`, `provider_refund_id`, `status`. Arrives with M1.11b |
+| `payment.refund_intent` | `tenant_id`, `refund_id`, `order_id`, `attempt`, `amount_minor`, `currency`, `idempotency_key` (`<refund_id>:<attempt>`), `provider_refund_id`, `status`, `failure_reason`, `cause_event_id`, `updated_at`. `orderloop_ops` may only read it, through `ops_scan` |
 | `payment.settlement` | `tenant_id`, `order_id`, `expected_minor`, `settled_minor`, `currency`, `expected_at`, `settled_at` |
 | `fulfilment.shipment` | `tenant_id`, `order_id`, `awb`, `carrier`, `status`, `ndr_count`, `last_event_at` |
 

@@ -32,5 +32,9 @@ orderloop:
     schema: payment
     ops-password: ${POSTGRES_OPS_PASSWORD:orderloop_ops_dev}
   payment:
+    # How often RefundReconciler looks for refunds to send or settle, and how long a SENT or
+    # UNKNOWN refund waits before the provider is asked what happened.
+    refund-poll-interval: 1s
+    reconcile-after: 30s
     # simulator is the default; real adapters are opt-in (ADR 0007).
     provider: simulator

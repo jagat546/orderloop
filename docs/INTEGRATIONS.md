@@ -68,11 +68,11 @@ public interface InventoryProvider { // inventory-service, built in M1.10 and M1
 }
 ```
 
-`PaymentProvider.lookup` is built (M1.11a); `refund` and `findRefund` arrive with M1.11b.
+`PaymentProvider` is built: `lookup` (M1.11a), and `refund` and `findRefund` (M1.11b). `refund` throws when the outcome is unknown, such as on a timeout. Only providers that honour idempotency keys may implement it, because the reconciler may call again under the same key.
 
 The inventory simulator holds stock for every order except one whose ID ends in `-out-of-stock`, which fails with `OUT_OF_STOCK`, the way a test card number chooses a failure. Release always succeeds. It keeps no state.
 
-The payment simulator keeps an in-memory ledger per tenant. Tests and the demo record what checkout did for an order (prepaid captured, prepaid authorised only, or COD, with an amount in any ISO 4217 currency), and `lookup` returns exactly that. An order with nothing recorded has no payment, so verification fails with `NO_PAYMENT_FOUND`. The ledger is lost on restart.
+The payment simulator keeps an in-memory ledger per tenant. Tests and the demo record what checkout did for an order (prepaid captured, prepaid authorised only, or COD, with an amount in any ISO 4217 currency), and `lookup` returns exactly that. An order with nothing recorded has no payment, so verification fails with `NO_PAYMENT_FOUND`. Refunds honour idempotency keys and never exceed what is left of the capture, in its currency. `onNextRefund` makes the next refund for an order be rejected, or be made and then time out, so tests can drive every path. The ledger is lost on restart.
 
 Both simulators do no I/O, so they run inside the inbox transaction. A real adapter must follow the provider side-effect pattern in `docs/ARCHITECTURE.md`, take the tenant's automation mode, and key its writes by order ID, because a retried step resends its command under a new event ID.
 

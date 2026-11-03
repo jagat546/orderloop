@@ -109,6 +109,8 @@ The inbox cannot undo an HTTP call, so any provider write follows this pattern:
 3. **Result:** in a new transaction, save `SUCCEEDED` or `FAILED`, and write the reply to the outbox.
 4. **Timeout or crash:** mark the intent `UNKNOWN`. A reconciler queries the provider and settles it. It never blindly retries a provider that lacks idempotency.
 
+Refunds in `payment-service` are the first use (M1.11b). The inbox handler only records the intent. `RefundReconciler` finds due intents as `orderloop_ops`, which may only read them, and handles each as `orderloop_app` in its tenant scope. It sets the amount from the provider's capture, claims the intent as `SENT`, and calls outside any transaction. It then settles the result and writes the reply in one transaction, and only an open attempt can be settled, so the reply goes out once. An intent left `SENT` or `UNKNOWN` for `orderloop.payment.reconcile-after` is reconciled with `findRefund` before anything is sent again, under the same key.
+
 Razorpay refunds support this through the `X-Refund-Idempotency` header. Confirm equivalent support for each adapter and operation, including Stripe; where none exists, query before retrying. Simulators honour idempotency keys, so the pattern is tested without accounts.
 
 ## Observability
