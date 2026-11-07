@@ -1,0 +1,13 @@
+# Secret scanning (roadmap P.3). gitleaks' default rules, minus the development values that are
+# public on purpose: the demo's API key and the fixed keys in tests. Real secrets never live in the
+# repository; they come from environment variables (.env.example lists them, empty).
+#   docker run --rm -v "$PWD:/repo:ro" zricethezav/gitleaks:v8.28.0 git /repo --config /repo/.gitleaks.toml
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented development keys with no secret value"
+regexes = [
+  '''^demo-key-not-a-secret$''',
+  '''^(alpha|beta|a)-dev-key-[0-9]+$''',
+]
