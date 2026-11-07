@@ -29,6 +29,8 @@ Java 21 is not acceptable here: `ScopedValue` is only final from Java 25. See `d
 | Start infrastructure | `docker compose -f deploy/docker-compose.yml up -d --wait` |
 | Start with Prometheus, Tempo and Grafana | `docker compose -f deploy/docker-compose.yml --profile telemetry up -d --wait` |
 | Check infrastructure, roles and schemas | `bash scripts/check-infra.sh` |
+| Build and start the demo, every service included | `docker compose up --build --wait` |
+| Check the demo end to end | `bash scripts/demo-smoke.sh` (`--no-up` if it is running) |
 | Stop, keeping data | `docker compose -f deploy/docker-compose.yml down` |
 | Stop and wipe data (asks first) | `docker compose -f deploy/docker-compose.yml down -v` |
 | Dashboard | `npm --prefix web-dashboard run dev` |

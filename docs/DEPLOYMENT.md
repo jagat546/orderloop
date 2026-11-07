@@ -2,6 +2,10 @@
 
 The reference production setup is one 16 GB VPS with Docker Compose. All sizing here is an estimate, so measure it during M4. The M1 demo (`docker compose up` with simulators) is for evaluation only, not production.
 
+## The demo
+
+`docker compose up --build --wait` at the repository root builds the four services from source inside Docker and starts them on simulators, with PostgreSQL, Kafka, Redis, Prometheus, Tempo and Grafana from `deploy/docker-compose.yml`. It needs only Docker, and fits about 4 GB of Docker memory: each service is capped at 448 MB, PostgreSQL at 512 MB and Kafka at 768 MB. It is a Compose project of its own (`orderloop-demo`), with its own volumes. PostgreSQL, Kafka and Redis publish no host ports in the demo, but Grafana, Prometheus and Tempo use the same host ports as the development telemetry, so stop one before starting the other. `bash scripts/demo-smoke.sh --no-up` checks a running demo: an order created through the order API is handled by the services and its transitions reach Prometheus.
+
 ## Memory budget
 
 | Component | Estimate |
@@ -21,6 +25,8 @@ Reprice at deploy time. [Hetzner's prices rose sharply in 2026, and its CX and C
 ## Layout
 
 ```text
+compose.yaml                # The demo: infrastructure, telemetry and every service (M1.16a)
+Dockerfile                  # Service images built from source, for the demo
 deploy/
   docker-compose.yml        # Development infrastructure only (M1.2)
   postgres/init/            # Creates roles and schemas on an empty volume

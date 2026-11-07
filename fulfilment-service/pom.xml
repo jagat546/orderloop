@@ -86,6 +86,14 @@
 
   <build>
     <plugins>
+      <!-- An executable jar for the service image, beside the plain jar other modules test against. -->
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <classifier>exec</classifier>
+        </configuration>
+      </plugin>
       <!-- Runs *IT tests in the integration-test phase; the parent configures its goals. -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

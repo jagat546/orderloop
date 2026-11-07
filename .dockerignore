@@ -1,0 +1,10 @@
+# The image build needs the Maven sources only.
+.git
+.claude
+**/target
+**/node_modules
+web-dashboard
+docs
+.env
+.env.*
+REPOSITORY_INVENTORY.*

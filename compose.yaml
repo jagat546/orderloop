@@ -1,0 +1,121 @@
+# The demo (roadmap M1.16): every service on simulators, beside the infrastructure and telemetry.
+#   docker compose up --build --wait     then   bash scripts/demo-smoke.sh --no-up
+# Needs only Docker: the services are built from source inside Docker (Dockerfile). For
+# evaluation, not production (docs/DEPLOYMENT.md). It is its own Compose project, so its data
+# stays apart from the development infrastructure in deploy/docker-compose.yml. Both publish
+# Grafana, Prometheus and Tempo on the same host ports, so stop one before starting the other.
+#
+# The order API is at http://localhost:8080/api/v1/orders with header
+# "X-Api-Key: demo-key-not-a-secret" (tenant t_demo). Grafana: http://localhost:3000/d/orderloop.
+# Every port binds to localhost only.
+
+name: orderloop-demo
+
+include:
+  - deploy/docker-compose.yml
+
+x-service: &service
+  build: &build
+    context: .
+    target: service
+  restart: unless-stopped
+  # A JVM sized for a small machine; the Dockerfile gives 60% of this to the heap.
+  mem_limit: 448m
+  depends_on:
+    postgres:
+      condition: service_healthy
+    kafka:
+      condition: service_healthy
+    prometheus:
+      condition: service_healthy
+    tempo:
+      condition: service_started
+  environment: &environment
+    # Each service reads its own URL; one network, one database, a schema per service.
+    ORCHESTRATOR_DATABASE_URL: jdbc:postgresql://postgres:5432/orderloop
+    INVENTORY_DATABASE_URL: jdbc:postgresql://postgres:5432/orderloop
+    PAYMENT_DATABASE_URL: jdbc:postgresql://postgres:5432/orderloop
+    FULFILMENT_DATABASE_URL: jdbc:postgresql://postgres:5432/orderloop
+    POSTGRES_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-orderloop_app_dev}
+    POSTGRES_OWNER_PASSWORD: ${POSTGRES_OWNER_PASSWORD:-orderloop_owner_dev}
+    POSTGRES_OPS_PASSWORD: ${POSTGRES_OPS_PASSWORD:-orderloop_ops_dev}
+    KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    # Telemetry on (docs/ARCHITECTURE.md, Observability): metrics to Prometheus, spans to Tempo.
+    MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "true"
+    MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://prometheus:9090/api/v1/otlp/v1/metrics
+    MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+
+services:
+  order-orchestrator:
+    <<: *service
+    image: orderloop/order-orchestrator:demo
+    build:
+      <<: *build
+      args:
+        MODULE: order-orchestrator
+    environment:
+      <<: *environment
+      # The development order API, for one demo tenant. The key is public and grants nothing
+      # outside this demo; real tenants come from Shopify session tokens (invariant 1).
+      ORDERLOOP_SECURITY_DEVAPIKEYSENABLED: "true"
+      ORDERLOOP_SECURITY_DEVAPIKEYS_0_TENANT: t_demo
+      ORDERLOOP_SECURITY_DEVAPIKEYS_0_KEY: ${DEMO_API_KEY:-demo-key-not-a-secret}
+    ports:
+      - "127.0.0.1:${ORCHESTRATOR_HOST_PORT:-8080}:8080"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -o /dev/null -H "X-Api-Key: $${ORDERLOOP_SECURITY_DEVAPIKEYS_0_KEY}"
+          http://localhost:8080/actuator/health
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  # The downstream services serve no HTTP; Compose sees them as running once started.
+  inventory-service:
+    <<: *service
+    image: orderloop/inventory-service:demo
+    build:
+      <<: *build
+      args:
+        MODULE: inventory-service
+
+  payment-service:
+    <<: *service
+    image: orderloop/payment-service:demo
+    build:
+      <<: *build
+      args:
+        MODULE: payment-service
+
+  fulfilment-service:
+    <<: *service
+    image: orderloop/fulfilment-service:demo
+    build:
+      <<: *build
+      args:
+        MODULE: fulfilment-service
+
+  # Telemetry is opt-in for development (deploy/docker-compose.yml) but part of the demo.
+  prometheus:
+    profiles: !reset []
+  tempo:
+    profiles: !reset []
+  grafana:
+    profiles: !reset []
+
+  # Smaller than the development defaults, so the whole demo fits a machine with 4 GB for Docker.
+  # Only the services reach the infrastructure, so it publishes no host ports and cannot clash
+  # with the development stack or anything else on 5432, 29092 or 6379.
+  postgres:
+    mem_limit: 512m
+    ports: !reset []
+  kafka:
+    environment:
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    mem_limit: 768m
+    ports: !reset []
+  redis:
+    ports: !reset []
