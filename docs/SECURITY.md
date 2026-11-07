@@ -20,7 +20,7 @@ This is an engineering checklist, not legal advice. Have a qualified person conf
 | Token theft | AES-256-GCM encryption at rest, key held outside the database, no tokens in logs, least-privilege scopes |
 | PII leak | Observe mode stores none, IDs in logs and Kafka, raw events purged after 14 days, encrypted backups |
 | Dashboard attacks | Session tokens, strict content security policy, generated API types, no tokens in browser storage |
-| Secret exposure | `.env` outside git, secret scanning in CI, deny rules and hooks for Claude Code |
+| Secret exposure | `.env` outside git, secret scanning of the whole git history in CI (gitleaks, `.gitleaks.toml`), deny rules and hooks for Claude Code |
 
 ## Shopify
 

@@ -109,7 +109,7 @@ The design in `docs/` is approved, so do not run brainstorming to restart it. Pr
 | Shopify, Stripe, simulators and optional adapters | `docs/INTEGRATIONS.md` |
 | Secrets, PII, compliance | `docs/SECURITY.md` |
 | Running in production | `docs/DEPLOYMENT.md` |
-| Licence options (not yet chosen) | `docs/LICENSING.md` |
+| Licence (Apache-2.0) and why | `LICENSE`, `docs/adr/0008-apache-2-licence.md` |
 | Pricing and sales (optional) | `docs/business/` |
 | Why a decision was made | `docs/adr/` |
 

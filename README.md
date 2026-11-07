@@ -4,7 +4,7 @@ OrderLoop is an open-source Shopify app that finds money stuck in orders, in any
 
 It is a multi-tenant system of five Spring Boot services on PostgreSQL and Kafka. Payment and shipping providers sit behind interfaces whose default adapters are simulators, so the whole system runs on your machine with **no accounts or API keys**.
 
-**Status:** milestone M1, the reliable core, is complete: saga, outbox and inbox, tenancy, deadlines, telemetry, a chaos suite and the one-command demo. The merchant dashboard, Shopify and Stripe come in later milestones (`docs/ROADMAP.md`). No licence has been chosen yet (`docs/LICENSING.md`).
+**Status:** milestone M1, the reliable core, is complete: saga, outbox and inbox, tenancy, deadlines, telemetry, a chaos suite and the one-command demo. The merchant dashboard, Shopify and Stripe come in later milestones (`docs/ROADMAP.md`). Licensed under Apache-2.0 (`LICENSE`; the reasoning is in `docs/adr/0008-apache-2-licence.md`).
 
 ## The problem
 

@@ -29,3 +29,19 @@ jobs:
 
       - name: Build, format check, ArchUnit and tests
         run: mvn -B -ntp verify
+
+  secrets:
+    # The whole git history, not only the new commits, with the allowlist in .gitleaks.toml. The
+    # pinned image is the scan run before publication (roadmap P.3); no licence key or token needed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Scan git history for secrets
+        run: >-
+          docker run --rm -v "$PWD:/repo:ro"
+          -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*'
+          zricethezav/gitleaks:v8.28.0 git /repo --config /repo/.gitleaks.toml --redact --no-banner -v

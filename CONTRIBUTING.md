@@ -76,6 +76,10 @@ Integration tests use Testcontainers with real PostgreSQL and Kafka, never H2 or
 - Before coding against a provider API, check its current documentation; do not trust remembered endpoints or field names.
 - Contribute only code you have the right to contribute. Never include code, data or documents from an employer or client.
 
+## Licence
+
+OrderLoop is licensed under the Apache License 2.0 (`LICENSE`). By submitting a contribution, you agree that it is licensed under the same terms, as section 5 of the licence provides. There is no separate contributor licence agreement.
+
 ## Security issues
 
 Do not report vulnerabilities in public issues. See `SECURITY.md`.

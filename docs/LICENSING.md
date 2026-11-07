@@ -1,6 +1,6 @@
 # Licence options
 
-Not decided. The owner chooses before the repository goes public, after the employment-contract and IP check, and records the choice with `/record-decision`. Until then the repository has no `LICENSE` file, which means all rights are reserved. This is not legal advice.
+**Decided: Apache-2.0** (ADR 0008, `LICENSE`). The comparison below is kept as the reasoning behind it. The employment-contract and IP check (roadmap P.1) must still pass before the repository goes public. This is not legal advice.
 
 Both options are OSI-approved, and both can include the project's dependencies, which are mostly Apache-2.0 (Spring, Kafka clients) or BSD (PostgreSQL JDBC). Confirm each dependency's licence before publishing.
 

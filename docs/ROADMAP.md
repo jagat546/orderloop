@@ -30,7 +30,7 @@ OrderLoop ships first as an open-source project (ADR 0007). M1 builds the reliab
 ## P: before the repository goes public
 
 - [ ] P.1 `[human]` Read your employment contract and get advice on side work and IP. Done when: you know you may publish this code.
-- [ ] P.2 `[human]` Choose a licence from `docs/LICENSING.md` and record it with `/record-decision`. Done when: a `LICENSE` file exists.
+- [x] P.2 `[human]` Choose a licence from `docs/LICENSING.md` and record it with `/record-decision`. Done when: a `LICENSE` file exists.
 - [x] P.3 Prepare publication: secret scan of the whole git history, a check for any employer or client material, `CONTRIBUTING.md` and a security reporting policy. Done when: the scan is clean and both files exist.
 - [ ] P.4 `[human]` Make the repository public.
 
