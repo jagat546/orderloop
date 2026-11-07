@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd"
+         child.project.url.inherit.append.path="false">
   <modelVersion>4.0.0</modelVersion>
 
   <!-- Newest GA on 2026-11-02, checked on Maven Central and docs.spring.io (supports Java 17 to 27). -->
@@ -17,6 +18,34 @@
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
   <name>OrderLoop</name>
+  <!-- Declared here so modules stop inheriting Spring Boot's url, developers and scm from the parent.
+       The append.path="false" attributes keep every module pointing at the repository root. -->
+  <url>https://github.com/jagat546/orderloop</url>
+
+  <licenses>
+    <license>
+      <name>Apache-2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>jagat546</id>
+      <name>Jagat Jyoti Mishra</name>
+      <url>https://github.com/jagat546</url>
+    </developer>
+  </developers>
+
+  <scm child.scm.connection.inherit.append.path="false"
+       child.scm.developerConnection.inherit.append.path="false"
+       child.scm.url.inherit.append.path="false">
+    <connection>scm:git:https://github.com/jagat546/orderloop.git</connection>
+    <developerConnection>scm:git:git@github.com:jagat546/orderloop.git</developerConnection>
+    <url>https://github.com/jagat546/orderloop</url>
+    <tag>HEAD</tag>
+  </scm>
 
   <modules>
     <module>common-dto</module>
