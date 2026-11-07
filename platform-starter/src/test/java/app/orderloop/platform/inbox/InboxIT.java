@@ -10,6 +10,7 @@ import app.orderloop.dto.SagaCommand.ReleaseInventoryCmd;
 import app.orderloop.dto.SagaCommand.ReserveInventoryCmd;
 import app.orderloop.platform.TestDatabase;
 import app.orderloop.platform.tenant.TenantContext;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -96,6 +97,7 @@ class InboxIT {
   @Autowired private InboxConsumer inbox;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private TransactionTemplate tx;
+  @Autowired private MeterRegistry meters;
 
   @Test
   void aDuplicateChangesStateOnce() {
@@ -168,6 +170,22 @@ class InboxIT {
     // One attempt plus two retries, each rolled back with the inbox row it wrote.
     assertThat(saga.calls(eventId)).isEqualTo(3);
     assertThat(stateRows("t_a", order)).isZero();
+  }
+
+  @Test
+  void aDeadLetterIsCountedForItsTopic() {
+    double before = deadLetters();
+    UUID eventId = UUID.randomUUID();
+
+    send(reserve("t_a", eventId, "poison-" + UUID.randomUUID()));
+
+    deadLetter(eventId);
+    await().atMost(Duration.ofSeconds(10)).until(() -> deadLetters() == before + 1);
+  }
+
+  private double deadLetters() {
+    var counter = meters.find("orderloop.inbox.dead.letters").tag("topic", TOPIC).counter();
+    return counter == null ? 0 : counter.count();
   }
 
   @Test

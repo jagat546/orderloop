@@ -4,6 +4,10 @@
 # Passwords fall back to development defaults so a clean checkout starts with no setup.
 # Override them in deploy/.env (copy from .env.example). Ports bind to localhost only;
 # set POSTGRES_HOST_PORT, KAFKA_HOST_PORT or REDIS_HOST_PORT if a default port is taken.
+# Telemetry (Prometheus, Tempo, Grafana) is opt-in so small machines start only what they need:
+#   docker compose -f deploy/docker-compose.yml --profile telemetry up -d --wait
+# then run services with telemetry on (docs/ARCHITECTURE.md, Observability) and open
+# http://localhost:3000/d/orderloop.
 
 name: orderloop
 
@@ -76,7 +80,78 @@ services:
       timeout: 5s
       retries: 20
 
+  # Telemetry. Caps total about 480 MB so it fits beside the infrastructure on a host with ~1 GB
+  # free; Go runtimes are told the cap so they collect garbage before the kernel kills them.
+  prometheus:
+    # Prometheus 3.15.0, pushed 2026-09-25. Services push metrics to its OTLP receiver, so it
+    # needs no scrape targets, and each series is labelled job=<service name>. Prometheus 3 sets
+    # its Go memory limit from the container cap on its own.
+    image: prom/prometheus:v3.15.0
+    profiles: [telemetry]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-otlp-receiver
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=512MB
+    volumes:
+      - ./telemetry/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_HOST_PORT:-9090}:9090"
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/-/ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  tempo:
+    # Tempo 2.10.9, pushed 2026-10-20. Receives spans over OTLP/HTTP on 4318; its API is on 3200.
+    image: grafana/tempo:2.10.9
+    profiles: [telemetry]
+    command: ["-config.file=/etc/tempo.yml"]
+    environment:
+      GOMEMLIMIT: 100MiB
+    volumes:
+      - ./telemetry/tempo.yml:/etc/tempo.yml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "127.0.0.1:${TEMPO_OTLP_HOST_PORT:-4318}:4318"
+      - "127.0.0.1:${TEMPO_HOST_PORT:-3200}:3200"
+    mem_limit: 128m
+
+  grafana:
+    # Grafana 13.2.4, pushed 2026-10-13. Anonymous viewers may read the board; sign in to edit.
+    image: grafana/grafana:13.2.4
+    profiles: [telemetry]
+    environment:
+      GOMEMLIMIT: 180MiB
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-grafana_dev}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+    volumes:
+      - ./telemetry/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./telemetry/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:${GRAFANA_HOST_PORT:-3000}:3000"
+    mem_limit: 224m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:3000/api/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      tempo:
+        condition: service_started
+
 volumes:
   postgres-data:
   kafka-data:
   redis-data:
+  prometheus-data:
+  tempo-data:

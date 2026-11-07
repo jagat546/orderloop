@@ -3,6 +3,7 @@ package app.orderloop.platform.inbox;
 import app.orderloop.platform.outbox.OutboxAutoConfiguration;
 import app.orderloop.platform.outbox.OutboxProperties;
 import app.orderloop.platform.outbox.OutboxRelay;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import org.springframework.beans.factory.ObjectProvider;
@@ -44,12 +45,20 @@ public class InboxAutoConfiguration {
   }
 
   @Bean
-  CommonErrorHandler inboxErrorHandler(OutboxRelay relay, InboxProperties properties) {
+  CommonErrorHandler inboxErrorHandler(
+      OutboxRelay relay, InboxProperties properties, MeterRegistry meters) {
     var backOff = new ExponentialBackOffWithMaxRetries(properties.maxRetries());
     backOff.setInitialInterval(properties.initialInterval().toMillis());
     backOff.setMultiplier(2);
     backOff.setMaxInterval(properties.maxInterval().toMillis());
-    var handler = new DefaultErrorHandler(relay::deadLetter, backOff);
+    var handler =
+        new DefaultErrorHandler(
+            (record, failure) -> {
+              relay.deadLetter(record, failure);
+              // Counted once it is on the dead-letter topic; every one needs a look.
+              meters.counter("orderloop.inbox.dead.letters", "topic", record.topic()).increment();
+            },
+            backOff);
     handler.addNotRetryableExceptions(InvalidMessageException.class);
     return handler;
   }

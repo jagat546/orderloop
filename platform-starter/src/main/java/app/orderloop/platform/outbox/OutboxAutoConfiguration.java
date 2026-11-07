@@ -3,6 +3,8 @@ package app.orderloop.platform.outbox;
 import app.orderloop.dto.Topics;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.binder.MeterBinder;
 import io.micrometer.tracing.Tracer;
 import io.micrometer.tracing.propagation.Propagator;
 import java.util.HashMap;
@@ -89,6 +91,20 @@ public class OutboxAutoConfiguration {
     producerFactory.createProducer(); // Validates the settings now, not on the first poll.
 
     return new OutboxRelay(new HikariDataSource(ops), producerFactory, properties);
+  }
+
+  /** Per service: how many rows wait to be published, and how long the oldest has waited. */
+  @Bean
+  MeterBinder outboxMetrics(OutboxRelay relay) {
+    return registry -> {
+      Gauge.builder("orderloop.outbox.backlog", relay, OutboxRelay::backlog)
+          .description("Outbox rows not yet published")
+          .register(registry);
+      Gauge.builder("orderloop.outbox.oldest.age", relay, OutboxRelay::oldestAgeSeconds)
+          .description("How long the oldest unpublished outbox row has waited")
+          .baseUnit("seconds")
+          .register(registry);
+    };
   }
 
   /**

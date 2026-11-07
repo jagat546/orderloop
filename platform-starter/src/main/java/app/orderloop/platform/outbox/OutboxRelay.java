@@ -60,6 +60,8 @@ public final class OutboxRelay implements AutoCloseable {
   private final String lockName;
   private final String select;
   private final String markPublished;
+  private final String backlog;
+  private final String oldestAge;
   private final int batchSize;
   private final Duration wait;
 
@@ -80,8 +82,24 @@ public final class OutboxRelay implements AutoCloseable {
             + ".outbox WHERE published_at IS NULL ORDER BY id LIMIT ?";
     this.markPublished =
         "UPDATE " + properties.schema() + ".outbox SET published_at = now() WHERE id = ?";
+    this.backlog =
+        "SELECT count(*) FROM " + properties.schema() + ".outbox WHERE published_at IS NULL";
+    this.oldestAge =
+        "SELECT coalesce(extract(epoch FROM now() - min(created_at)), 0) FROM "
+            + properties.schema()
+            + ".outbox WHERE published_at IS NULL";
     this.batchSize = properties.batchSize();
     this.wait = properties.deliveryTimeout().plus(WAIT_MARGIN);
+  }
+
+  /** Rows not yet published, for the backlog gauge. */
+  public long backlog() {
+    return jdbc.queryForObject(backlog, Long.class);
+  }
+
+  /** Seconds the oldest unpublished row has waited, or 0 when none waits; alert past 5 minutes. */
+  public double oldestAgeSeconds() {
+    return jdbc.queryForObject(oldestAge, Double.class);
   }
 
   /** The advisory lock name for a schema's relay, shared by every instance of that service. */

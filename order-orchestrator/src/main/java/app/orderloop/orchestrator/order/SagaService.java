@@ -46,6 +46,8 @@ import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Applies {@link SagaEngine} decisions. Each transition commits in one transaction: the saga row
@@ -181,6 +183,9 @@ public class SagaService {
           "Order " + orderId + " moved on since version " + saga.version());
     }
     em.detach(saga); // A later read in this transaction sees the row as written.
+    String from = saga.state();
+    afterCommit(
+        () -> meters.counter("orderloop.saga.transitions", "from", from, "to", to).increment());
     jdbc.update(
         LOG_STEP,
         tenant,
@@ -271,7 +276,20 @@ public class SagaService {
       log.warn("Deadline {} for order {} did not match its state and was dropped", kind, orderId);
       return false;
     }
+    afterCommit(
+        () -> meters.counter("orderloop.saga.deadlines.missed", "kind", kind.name()).increment());
     return true;
+  }
+
+  /** Counts only what commits: a transition rolled back never happened. */
+  private static void afterCommit(Runnable count) {
+    TransactionSynchronizationManager.registerSynchronization(
+        new TransactionSynchronization() {
+          @Override
+          public void afterCommit() {
+            count.run();
+          }
+        });
   }
 
   /**

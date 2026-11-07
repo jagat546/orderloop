@@ -50,5 +50,16 @@
       <artifactId>archunit-junit5</artifactId>
       <scope>test</scope>
     </dependency>
+    <!-- For plain tests over files outside the code, such as the Grafana board. -->
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
   </dependencies>
 </project>

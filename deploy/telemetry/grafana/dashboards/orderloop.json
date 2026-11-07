@@ -1,0 +1,135 @@
+{
+  "uid": "orderloop",
+  "title": "OrderLoop",
+  "description": "Saga states, outbox age, missed deadlines and dead letters per service, and every trace for an order. Counts are since each service started.",
+  "tags": ["orderloop"],
+  "schemaVersion": 41,
+  "version": 1,
+  "editable": false,
+  "refresh": "10s",
+  "time": { "from": "now-6h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "type": "textbox",
+        "name": "order",
+        "label": "Order ID",
+        "query": "",
+        "current": { "text": "", "value": "" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "bargauge",
+      "title": "Sagas entering each state",
+      "description": "Committed saga transitions, by the state entered (order-orchestrator).",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "orientation": "horizontal", "displayMode": "basic", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (to) (orderloop_saga_transitions_total)",
+          "legendFormat": "{{to}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "bargauge",
+      "title": "Missed deadlines by kind",
+      "description": "Deadlines fired by the deadline scanner, per service and deadline kind.",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "orientation": "horizontal", "displayMode": "basic", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (job, kind) (orderloop_saga_deadlines_missed_total)",
+          "legendFormat": "{{job}} {{kind}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Oldest unpublished outbox row, per service",
+      "description": "How long the oldest outbox row has waited for the relay. Alert past 5 minutes.",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "green", "value": null }, { "color": "red", "value": 300 } ] }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (job) (orderloop_outbox_oldest_age_seconds)",
+          "legendFormat": "{{job}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Outbox backlog, per service",
+      "description": "Outbox rows not yet published.",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (job) (orderloop_outbox_backlog)",
+          "legendFormat": "{{job}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "bargauge",
+      "title": "Dead letters, per service",
+      "description": "Messages a service gave up on, by the topic they came from. Every one needs a look.",
+      "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "options": { "orientation": "horizontal", "displayMode": "basic", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "sum by (job, topic) (orderloop_inbox_dead_letters_total)",
+          "legendFormat": "{{job}} {{topic}}",
+          "instant": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Traces for order $order",
+      "description": "Enter an order ID above. Every trace with a span for that order: its creation, and later carrier, settlement and restock events. Select a trace ID to open it.",
+      "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "queryType": "traceql",
+          "query": "{ span.order.id = \"$order\" }",
+          "tableType": "traces",
+          "limit": 20
+        }
+      ]
+    }
+  ]
+}

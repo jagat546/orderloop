@@ -111,6 +111,9 @@ public final class InboxConsumer {
             .extract(record, InboxConsumer::header)
             .name("handle " + header(record, Headers.EVENT_TYPE))
             .kind(Span.Kind.CONSUMER)
+            // IDs only (invariant 9); they let Grafana find every trace for an order.
+            .tag("order.id", message.orderId())
+            .tag("tenant.id", tenant)
             .start();
     MDC.put(ORDER_ID, message.orderId());
     try (Tracer.SpanInScope inScope = tracer.withSpan(span)) {

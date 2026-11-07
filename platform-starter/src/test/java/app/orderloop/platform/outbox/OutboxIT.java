@@ -10,6 +10,7 @@ import app.orderloop.dto.SagaCommand.ReserveInventoryCmd;
 import app.orderloop.dto.SagaEvent.InventoryFailedEvt;
 import app.orderloop.platform.TestDatabase;
 import app.orderloop.platform.tenant.TenantContext;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.tracing.Span;
 import io.micrometer.tracing.Tracer;
 import java.sql.Connection;
@@ -89,6 +90,7 @@ class OutboxIT {
   @Autowired private TransactionTemplate tx;
   @Autowired private JdbcTemplate jdbc;
   @Autowired private Tracer tracer;
+  @Autowired private MeterRegistry meters;
 
   @Test
   void aRollbackPublishesNothing() {
@@ -274,6 +276,24 @@ class OutboxIT {
     drainRelay();
 
     assertThat(recordOnTopic(event.eventId()).headers().lastHeader("traceparent")).isNull();
+  }
+
+  @Test
+  void outboxMetricsReportTheBacklogAndHowLongItsOldestRowHasWaited() {
+    drainRelay();
+    // Rows Kafka rejected in another test stay unpublished, so measure from what already waits.
+    double waiting = gauge("orderloop.outbox.backlog");
+
+    commit(envelope("t_a", "o-waiting"));
+
+    assertThat(gauge("orderloop.outbox.backlog")).isEqualTo(waiting + 1);
+    await().atMost(Duration.ofSeconds(5)).until(() -> gauge("orderloop.outbox.oldest.age") > 0);
+    drainRelay();
+    assertThat(gauge("orderloop.outbox.backlog")).isEqualTo(waiting);
+  }
+
+  private double gauge(String name) {
+    return meters.get(name).gauge().value();
   }
 
   private void commit(Envelope envelope) {

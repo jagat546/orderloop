@@ -18,6 +18,7 @@ import app.orderloop.orchestrator.saga.DeadlineKind;
 import app.orderloop.orchestrator.saga.SagaInput.Reply;
 import app.orderloop.platform.TestDatabase;
 import app.orderloop.platform.tenant.TenantContext;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -110,6 +111,37 @@ class DeadlineIT {
     assertThat(findings("t_alpha", order)).containsExactly("STUCK_ORDER|1234|KWD|false|OPEN");
     assertThat(deadlines("t_alpha", order)).isEmpty();
     assertThat(stepLog("t_alpha", order)).endsWith("Allocating->NeedsAttention");
+  }
+
+  @Test
+  void aMissedDeadlineAndTheTransitionsItCausesAreCountedOnceCommitted() {
+    double missed = count("orderloop.saga.deadlines.missed", "kind", "ALLOCATING");
+    double parked = count("orderloop.saga.transitions", "to", "NeedsAttention");
+    String order = created("t_alpha");
+    Deadline due = deadline("t_alpha", order);
+
+    // A stale firing commits nothing, so it counts nothing.
+    TenantContext.callAs(
+        "t_alpha",
+        () ->
+            sagas()
+                .fireDeadline(
+                    order, DeadlineKind.ALLOCATING, due.dueAt().minus(Duration.ofSeconds(1))));
+    assertThat(count("orderloop.saga.deadlines.missed", "kind", "ALLOCATING")).isEqualTo(missed);
+
+    expire("t_alpha", order);
+
+    awaitState("t_alpha", order, "NeedsAttention");
+    await()
+        .atMost(Duration.ofSeconds(5))
+        .until(() -> count("orderloop.saga.deadlines.missed", "kind", "ALLOCATING") >= missed + 1);
+    assertThat(count("orderloop.saga.transitions", "to", "NeedsAttention"))
+        .isGreaterThanOrEqualTo(parked + 1);
+  }
+
+  private static double count(String name, String tag, String value) {
+    var counter = orchestrator.getBean(MeterRegistry.class).find(name).tag(tag, value).counter();
+    return counter == null ? 0 : counter.count();
   }
 
   @Test

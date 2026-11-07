@@ -47,8 +47,12 @@ management:
   otlp:
     metrics:
       export:
-        # Off until M1.14b adds a collector; spans export once an OTLP endpoint is set.
+        # Off by default. With the telemetry profile of deploy/docker-compose.yml up, set
+        # MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED=true, and for spans
+        # MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT=http://localhost:4318/v1/traces.
         enabled: false
+        url: http://localhost:9090/api/v1/otlp/v1/metrics
+        step: 15s
   tracing:
     sampling:
       # Every order is traced; lower it if trace volume ever matters.
