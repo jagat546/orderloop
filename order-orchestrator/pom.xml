@@ -121,6 +121,11 @@
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-failsafe-plugin</artifactId>
+        <configuration>
+          <!-- The end-to-end and chaos suites run four services in this JVM. A fixed heap and the
+               serial collector keep it within a small machine; ChaosIT caps its containers too. -->
+          <argLine>${argLine} -Xmx1g -XX:+UseSerialGC</argLine>
+        </configuration>
       </plugin>
     </plugins>
   </build>

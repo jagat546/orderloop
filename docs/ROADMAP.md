@@ -22,7 +22,7 @@ OrderLoop ships first as an open-source project (ADR 0007). M1 builds the reliab
 - [x] M1.13 Build persisted deadlines. Done when: a missed deadline opens an exception, and it survives a restart.
 - [x] M1.14a Add JSON logs, MDC, and W3C trace context through the outbox and Kafka. Done when: one trace follows an order across every service.
 - [x] M1.14b Add metrics and a Grafana board, with Prometheus and Tempo in Compose. Done when: the board shows saga states, outbox age, missed deadlines and dead letters per service, and opens an order's trace.
-- [ ] M1.15 Add a chaos suite: kill services at each crash point, duplicate deliveries, reorder replies, stop Kafka. Done when: every order ends in a named state with correct money, and no tenant sees another's data.
+- [x] M1.15 Add a chaos suite: kill services at each crash point, duplicate deliveries, reorder replies, stop Kafka. Done when: every order ends in a named state with correct money, and no tenant sees another's data.
 - [ ] M1.16 Build the one-command demo: `docker compose up` builds and starts the infrastructure, every service on simulators, and a generator of demo orders in at least two currencies. Done when: on a clean machine with only Docker and Git, that one command shows orders reaching `Closed`, `ClosedRto` and an open exception through the order API and Grafana, with no accounts or keys.
 - [ ] M1.17 Write the README: problem, diagram, demo walkthrough, trade-offs. Done when: a stranger runs the demo from the README alone.
 
