@@ -1,6 +1,6 @@
 # Licensing
 
-**Decided: Apache-2.0** (ADR 0008, `LICENSE`). The dependency audit below found nothing that conflicts with it. The options comparison is kept as the reasoning behind the choice. The employment-contract and IP check (roadmap P.1) must still pass before the repository goes public. This is not legal advice.
+**Decided: Apache-2.0** (ADR 0008, `LICENSE`). The dependency audit below found nothing that conflicts with it. The options comparison is kept as the reasoning behind the choice. The owner confirmed the employment-contract and IP check (roadmap P.1) on 2026-11-07. This is not legal advice.
 
 ## Dependency audit
 
