@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
-@EnableScheduling // RefundReconciler
+@EnableScheduling // RefundReconciler, and the simulator moving demo orders on
 public class PaymentServiceApplication {
 
   public static void main(String[] args) {

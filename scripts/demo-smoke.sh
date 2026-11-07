@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Checks the Docker demo end to end (roadmap M1.16a): every service starts from the root
-# compose.yaml, an order created through the order API is handled by the services, and its
+# Checks the Docker demo end to end (roadmap M1.16): every service starts from the root
+# compose.yaml, an order created through the order API is handled by the services, the demo
+# generator's orders reach Closed, ClosedRto and an open exception on their own, and those
 # transitions reach Prometheus, which the Grafana board reads.
 #
 #   bash scripts/demo-smoke.sh          # builds and starts the demo first
@@ -54,22 +55,40 @@ created="$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/api/v1/orders" \
 echo "Created order $order"
 
 state() {
-  curl -s "$API/api/v1/orders/$order" -H "X-Api-Key: $KEY" |
+  curl -s "$API/api/v1/orders/$1" -H "X-Api-Key: $KEY" |
     sed -n 's/.*"state":"\([A-Za-z]*\)".*/\1/p'
 }
-closed() { [[ "$(state)" == ClosedCancelled ]]; }
-wait_for 120 closed || fail "$order is in '$(state)', not ClosedCancelled"
+in_state() { [[ "$(state "$1")" == "$2" ]]; }
+wait_for 120 in_state "$order" ClosedCancelled ||
+  fail "$order is in '$(state "$order")', not ClosedCancelled"
 echo "Order $order reached ClosedCancelled"
+
+# The generator's own orders, with nothing driving the simulators (roadmap M1.16b). The first one
+# of each kind it created, from its log.
+demo_order() {
+  docker compose logs --no-log-prefix demo-orders 2>/dev/null |
+    sed -n "s/^201 \(demo-[0-9]*-[0-9]*-$1\)\r\{0,1\}$/\1/p" | sed -n 1p
+}
+generated() { [[ -n "$(demo_order "$1")" ]]; }
+for expected in delivered-INR-149900:Closed rto-JPY-4500:ClosedRto out-of-stock:NeedsAttention; do
+  kind="${expected%%:*}" end="${expected##*:}"
+  wait_for 60 generated "$kind" || fail "the generator created no $kind order"
+  demo="$(demo_order "$kind")"
+  wait_for 120 in_state "$demo" "$end" || fail "$demo is in '$(state "$demo")', not $end"
+  echo "Demo order $demo reached $end"
+done
 
 # Metrics are pushed every 15 seconds, labelled with each service's name as job.
 query() {
   curl -s --get "$PROMETHEUS/api/v1/query" --data-urlencode "query=$1"
 }
-cancelled_counted() {
-  query 'sum(orderloop_saga_transitions_total{to="ClosedCancelled"})' | grep -q '"value":\[[^]]*,"[1-9]'
+counted() {
+  query "sum(orderloop_saga_transitions_total{to=\"$1\"})" | grep -q '"value":\[[^]]*,"[1-9]'
 }
-wait_for 120 cancelled_counted || fail "Prometheus has no transition to ClosedCancelled"
-echo "Prometheus counted the transition to ClosedCancelled"
+for end in ClosedCancelled Closed ClosedRto NeedsAttention; do
+  wait_for 120 counted "$end" || fail "Prometheus has no transition to $end"
+  echo "Prometheus counted transitions to $end"
+done
 
 every_service_reports() {
   local jobs

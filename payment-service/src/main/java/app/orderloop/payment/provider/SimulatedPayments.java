@@ -1,5 +1,6 @@
 package app.orderloop.payment.provider;
 
+import app.orderloop.dto.DemoOrder;
 import app.orderloop.dto.Envelope;
 import app.orderloop.dto.Money;
 import app.orderloop.dto.PaymentMethod;
@@ -9,13 +10,16 @@ import app.orderloop.platform.outbox.OutboxWriter;
 import app.orderloop.platform.tenant.TenantContext;
 import java.io.UncheckedIOException;
 import java.net.SocketTimeoutException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -25,6 +29,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * honour idempotency keys and never exceed what is left of the capture, in its currency. {@link
  * #onNextRefund} makes the next refund for an order fail, or time out after it succeeded. It does
  * no I/O, which is why it may run inside the inbox transaction (invariant 6).
+ *
+ * <p>A {@link DemoOrder} needs nothing recorded: looked up for the first time, it is found as
+ * checkout left it, prepaid and captured if it will be delivered, cash on delivery if it will come
+ * back. A delivered one's money settles three {@code orderloop.simulator.demo-step}s later, about
+ * when the carrier delivers it.
  *
  * <p>shortcut: the ledger is lost on restart; persist it if the demo needs payments to survive one.
  */
@@ -56,10 +65,18 @@ public class SimulatedPayments implements PaymentProvider {
 
   private final OutboxWriter outbox;
   private final TransactionTemplate tx;
+  private final TaskScheduler scheduler;
+  private final Duration demoStep;
 
-  SimulatedPayments(OutboxWriter outbox, TransactionTemplate tx) {
+  SimulatedPayments(
+      OutboxWriter outbox,
+      TransactionTemplate tx,
+      TaskScheduler scheduler,
+      @Value("${orderloop.simulator.demo-step:5s}") Duration demoStep) {
     this.outbox = outbox;
     this.tx = tx;
+    this.scheduler = scheduler;
+    this.demoStep = demoStep;
   }
 
   /**
@@ -114,8 +131,28 @@ public class SimulatedPayments implements PaymentProvider {
 
   @Override
   public synchronized PaymentStatus lookup(String tenantId, String orderId) {
+    if (!ledger.containsKey(new Key(tenantId, orderId))) {
+      DemoOrder.of(orderId).ifPresent(demo -> checkOut(tenantId, orderId, demo));
+    }
     PaymentStatus found = ledger.get(new Key(tenantId, orderId));
     return found != null ? found : new PaymentStatus.Failed("NO_PAYMENT_FOUND");
+  }
+
+  // Once per order: a later lookup finds it in the ledger. The settlement comes on the scheduler's
+  // thread, long after verification ends, since a settlement while verifying is ignored.
+  private void checkOut(String tenantId, String orderId, DemoOrder demo) {
+    boolean delivered = demo.outcome() == DemoOrder.Outcome.DELIVERED;
+    record(
+        tenantId,
+        orderId,
+        delivered ? PaymentMethod.PREPAID : PaymentMethod.COD,
+        delivered,
+        demo.total());
+    if (delivered) {
+      scheduler.schedule(
+          () -> settle(tenantId, orderId),
+          scheduler.getClock().instant().plus(demoStep.multipliedBy(3)));
+    }
   }
 
   @Override

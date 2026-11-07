@@ -200,6 +200,40 @@ class SagaEndToEndIT {
   }
 
   @Test
+  void demoOrdersCloseOrReturnWithNothingDrivingTheSimulators() {
+    String delivered = "demo-" + UUID.randomUUID() + "-delivered-INR-149900";
+    String returned = "demo-" + UUID.randomUUID() + "-rto-JPY-4500";
+
+    assertThat(create(delivered, new Money(149900, "INR"))).isEqualTo(201);
+    assertThat(create(returned, new Money(4500, "JPY"))).isEqualTo(201);
+
+    awaitState(delivered, "Closed");
+    awaitState(returned, "ClosedRto");
+    // Settlement may land before delivery (early) or after it; either way the order closes.
+    List<String> deliveredSteps = steps(delivered);
+    assertThat(deliveredSteps)
+        .startsWith(
+            "Received->Allocating",
+            "Allocating->VerifyingPayment",
+            "VerifyingPayment->Booking",
+            "Booking->InTransit");
+    assertThat(deliveredSteps.getLast()).isIn("AwaitingSettlement->Closed", "InTransit->Closed");
+    assertThat(steps(returned))
+        .containsExactly(
+            "Received->Allocating",
+            "Allocating->VerifyingPayment",
+            "VerifyingPayment->Booking",
+            "Booking->InTransit",
+            "InTransit->Returning",
+            "Returning->Restocking",
+            "Restocking->ClosedRto");
+    // Cash on delivery was never captured, so the return needs no refund (invariant 8).
+    assertThat(payments().refundCalls("t_alpha", returned)).isZero();
+    assertThat(exceptions(delivered)).isEmpty();
+    assertThat(exceptions(returned)).isEmpty();
+  }
+
+  @Test
   void aFailedPaymentReleasesStockAndClosesTheOrderAsCancelled() {
     String order = "o-" + UUID.randomUUID(); // No payment recorded, so verification fails.
 
@@ -310,15 +344,20 @@ class SagaEndToEndIT {
                 "--orderloop.outbox.schema=" + schema,
                 "--orderloop.outbox.ops-password=" + TestDatabase.OPS_PASSWORD,
                 "--orderloop.outbox.poll-interval=100ms",
+                "--orderloop.simulator.demo-step=1s",
                 "--spring.kafka.bootstrap-servers=" + KAFKA.getBootstrapServers()),
             Stream.of(more))
         .toArray(String[]::new);
   }
 
   private int create(String order) {
+    return create(order, new Money(1234, "KWD"));
+  }
+
+  private int create(String order, Money total) {
     String body =
-        "{\"orderId\":\"%s\",\"total\":{\"amountMinor\":1234,\"currency\":\"KWD\"}}"
-            .formatted(order);
+        "{\"orderId\":\"%s\",\"total\":{\"amountMinor\":%d,\"currency\":\"%s\"}}"
+            .formatted(order, total.amountMinor(), total.currency());
     return send(HttpRequest.newBuilder(uri("/api/v1/orders"))
             .header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(body)))

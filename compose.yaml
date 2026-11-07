@@ -98,6 +98,41 @@ services:
       args:
         MODULE: fulfilment-service
 
+  # Demo orders through the order API, as Shopify would send them after checkout. Each ID tells the
+  # simulators what happens (DemoOrder in common-dto): delivered and settled, returned and
+  # restocked, or out of stock and left open as an exception. Three currencies with 2, 0 and 3
+  # decimals. It reuses the orchestrator image for its curl, so there is nothing else to build.
+  demo-orders:
+    image: orderloop/order-orchestrator:demo
+    pull_policy: never
+    restart: unless-stopped
+    mem_limit: 32m
+    depends_on:
+      order-orchestrator:
+        condition: service_healthy
+    environment:
+      DEMO_API_KEY: ${DEMO_API_KEY:-demo-key-not-a-secret}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        run=$$(date +%s)
+        post() {
+          code=$$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+            http://order-orchestrator:8080/api/v1/orders \
+            -H "X-Api-Key: $$DEMO_API_KEY" -H 'Content-Type: application/json' \
+            -d "{\"orderId\":\"$$1\",\"total\":{\"amountMinor\":$$2,\"currency\":\"$$3\"}}")
+          echo "$$code $$1"
+        }
+        n=0
+        while true; do
+          n=$$((n + 1))
+          post "demo-$$run-$$n-delivered-INR-149900" 149900 INR
+          post "demo-$$run-$$n-rto-JPY-4500" 4500 JPY
+          # One exception every fifth round, so they stand out on the board.
+          if [ $$((n % 5)) -eq 1 ]; then post "demo-$$run-$$n-out-of-stock" 12345 KWD; fi
+          sleep 30
+        done
+
   # Telemetry is opt-in for development (deploy/docker-compose.yml) but part of the demo.
   prometheus:
     profiles: !reset []

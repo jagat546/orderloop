@@ -1,5 +1,6 @@
 package app.orderloop.fulfilment.provider;
 
+import app.orderloop.dto.DemoOrder;
 import app.orderloop.dto.Envelope;
 import app.orderloop.dto.SagaEvent;
 import app.orderloop.dto.SagaEvent.DeliveredEvt;
@@ -9,10 +10,13 @@ import app.orderloop.dto.SagaEvent.RtoStartedEvt;
 import app.orderloop.dto.Topics;
 import app.orderloop.platform.outbox.OutboxWriter;
 import app.orderloop.platform.tenant.TenantContext;
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -25,8 +29,11 @@ import org.springframework.transaction.support.TransactionTemplate;
  * late and out of order. It does no I/O, which is why booking may run inside the inbox transaction
  * (invariant 6).
  *
- * <p>shortcut: bookings are in memory and lost on restart; persist them if the demo needs them to
- * survive one.
+ * <p>A {@link DemoOrder} moves on by itself, {@code orderloop.simulator.demo-step} apart: a
+ * delivered one is delivered; an RTO one starts its return, then is received back.
+ *
+ * <p>shortcut: bookings and the demo's pending reports are in memory and lost on restart; persist
+ * them if the demo needs them to survive one.
  */
 @Component
 @ConditionalOnProperty(
@@ -42,10 +49,18 @@ public class SimulatedCarrier implements FulfilmentProvider {
   private final Set<Key> booked = new HashSet<>();
   private final OutboxWriter outbox;
   private final TransactionTemplate tx;
+  private final TaskScheduler scheduler;
+  private final Duration demoStep;
 
-  SimulatedCarrier(OutboxWriter outbox, TransactionTemplate tx) {
+  SimulatedCarrier(
+      OutboxWriter outbox,
+      TransactionTemplate tx,
+      TaskScheduler scheduler,
+      @Value("${orderloop.simulator.demo-step:5s}") Duration demoStep) {
     this.outbox = outbox;
     this.tx = tx;
+    this.scheduler = scheduler;
+    this.demoStep = demoStep;
   }
 
   @Override
@@ -53,8 +68,27 @@ public class SimulatedCarrier implements FulfilmentProvider {
     if (orderId.endsWith(NO_COURIER_SUFFIX)) {
       return new BookingResult.Failed("NO_COURIER");
     }
-    booked.add(new Key(tenantId, orderId)); // A repeat books the same shipment.
+    // A repeat books the same shipment, so a demo order plays out once.
+    if (booked.add(new Key(tenantId, orderId))) {
+      DemoOrder.of(orderId).ifPresent(demo -> playOut(tenantId, orderId, demo.outcome()));
+    }
     return new BookingResult.Booked();
+  }
+
+  // Reported later on the scheduler's thread, as a carrier's webhooks arrive. One that lands before
+  // the booking reply is an early carrier event, which the saga accepts.
+  private void playOut(String tenantId, String orderId, DemoOrder.Outcome outcome) {
+    switch (outcome) {
+      case DELIVERED -> later(1, () -> deliver(tenantId, orderId));
+      case RTO -> {
+        later(1, () -> startRto(tenantId, orderId));
+        later(2, () -> receiveRto(tenantId, orderId));
+      }
+    }
+  }
+
+  private void later(int steps, Runnable report) {
+    scheduler.schedule(report, scheduler.getClock().instant().plus(demoStep.multipliedBy(steps)));
   }
 
   @Override

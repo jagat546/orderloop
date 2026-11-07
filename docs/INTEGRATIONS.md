@@ -71,11 +71,21 @@ public interface InventoryProvider { // inventory-service, built in M1.10 to M1.
 
 `PaymentProvider` is built: `lookup` (M1.11a), and `refund` and `findRefund` (M1.11b). `refund` throws when the outcome is unknown, such as on a timeout. Only providers that honour idempotency keys may implement it, because the reconciler may call again under the same key.
 
-The inventory simulator holds stock for every order except one whose ID ends in `-out-of-stock`, which fails with `OUT_OF_STOCK`, the way a test card number chooses a failure. Release and restock always succeed. It keeps no state. `restockedByHand` reports a restock the merchant made with no command from us, as `InventoryRestockedEvt`.
+The inventory simulator holds stock for every order except one whose ID ends in `-out-of-stock`, which fails with `OUT_OF_STOCK`, the way a test card number chooses a failure. Release and restock always succeed. `restockedByHand` reports a restock the merchant made with no command from us, as `InventoryRestockedEvt`.
 
 The carrier simulator books every shipment except one whose order ID ends in `-no-courier`, which fails with `NO_COURIER`. `deliver`, `failDelivery`, `startRto` and `receiveRto` then report what the carrier saw, as its webhooks would, for shipments that tenant booked only. They report in the order called, so tests can send events late or out of order. Bookings are lost on restart.
 
 Simulator reports (carrier events, `settle` and `restockedByHand`) go out through their service's outbox in the tenant's scope, with no causation ID, since no command caused them.
+
+A demo order (`DemoOrder` in `common-dto`, M1.16b) moves on with nothing calling those methods. Its ID ends in `-delivered-<currency>-<amountMinor>` or `-rto-<currency>-<amountMinor>`, such as `demo-1794050899-3-rto-JPY-4500`. Each simulator acts on it once, `orderloop.simulator.demo-step` apart (5 seconds by default), on Spring's task scheduler:
+
+| Simulator | Delivered | RTO |
+|---|---|---|
+| Payment, on its first lookup | Prepaid and captured for the amount in the ID; settles 3 steps later | Cash on delivery, not captured |
+| Carrier, on booking | Delivered 1 step later | Return started 1 step later, received 2 steps later |
+| Inventory, on reservation | Nothing | Restocked by hand 6 steps later |
+
+So a delivered order reaches `Closed` and an RTO one `ClosedRto`, with no refund because nothing was captured. The restock is timed rather than triggered, because the inventory service never sees carrier events; one that lands before the saga reaches `Restocking` is ignored, and the order waits for its deadline. Pending reports are in memory and lost on restart. Real adapters never read the form.
 
 The payment simulator keeps an in-memory ledger per tenant. Tests and the demo record what checkout did for an order (prepaid captured, prepaid authorised only, or COD, with an amount in any ISO 4217 currency), and `lookup` returns exactly that. An order with nothing recorded has no payment, so verification fails with `NO_PAYMENT_FOUND`. Refunds honour idempotency keys and never exceed what is left of the capture, in its currency. `onNextRefund` makes the next refund for an order be rejected, or be made and then time out, so tests can drive every path. `settle` reports that the order's money reached the merchant (the capture, or the COD remittance), as `SettlementObservedEvt`. The ledger is lost on restart.
 
