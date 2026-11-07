@@ -6,7 +6,7 @@ OrderLoop ships first as an open-source project (ADR 0007). M1 builds the reliab
 
 ## M1: reliable core and simulator demo
 
-- [ ] M1.1 Create the Maven multi-module skeleton on Java 25 and the newest supported Spring Boot 4.x, with Spotless, ArchUnit and CI running `check-invariants.sh` and `mvn verify`. Done when: `mvn verify` passes in CI.
+- [x] M1.1 Create the Maven multi-module skeleton on Java 25 and the newest supported Spring Boot 4.x, with Spotless, ArchUnit and CI running `check-invariants.sh` and `mvn verify`. Done when: `mvn verify` passes in CI.
 - [x] M1.2 Add `deploy/docker-compose.yml` with PostgreSQL, Kafka in KRaft mode and Redis, plus roles and schemas. Done when: services are healthy from a clean start.
 - [x] M1.3 Build `common-dto`: `Money` (minor units and ISO 4217 code), sealed commands and events, envelope, JSON round-trip and golden tests. Done when: it has no Spring dependency, enforced by ArchUnit; adding two currencies throws; and JPY, USD and KWD amounts round-trip exactly.
 - [x] M1.4 Build tenant context: `TenantContext`, `TenantBindingFilter`, API-key auth for development. Done when: a missing credential returns 401, a mismatched header returns 403, and scope tests pass on virtual threads.
